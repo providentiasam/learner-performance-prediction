@@ -82,13 +82,13 @@ class DataModule(pl.LightningDataModule):
             config.dataset,
             f'data/{config.dataset}/val_data.pkl',
             seq_len=config.seq_len,
-            stride=1,
+            # stride=1,
         )
         test_data = InteractionDataset(
             config.dataset,
             f'data/{config.dataset}/test_data.pkl',
             seq_len=config.seq_len,
-            stride=1,
+            # stride=1,
         )
         self.train_gen = torch.utils.data.DataLoader(
             dataset=train_data,
