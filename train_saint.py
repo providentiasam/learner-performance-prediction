@@ -75,19 +75,18 @@ class DataModule(pl.LightningDataModule):
         super().__init__()
         train_data = InteractionDataset(
             config.dataset,
-            'data/ednet_small/train_data.pkl',
+            f'data/{config.dataset}/train_data.pkl',
             seq_len=config.seq_len,
-            stride=1
         )
         val_data = InteractionDataset(
             config.dataset,
-            'data/ednet_small/val_data.pkl',
+            f'data/{config.dataset}/val_data.pkl',
             seq_len=config.seq_len,
             stride=1,
         )
         test_data = InteractionDataset(
             config.dataset,
-            'data/ednet_small/test_data.pkl',
+            f'data/{config.dataset}/test_data.pkl',
             seq_len=config.seq_len,
             stride=1,
         )
