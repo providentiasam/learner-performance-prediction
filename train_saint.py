@@ -6,26 +6,26 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import argparse
 import dill as pkl
-from tqdm import tqdm
-from torch.optim.lr_scheduler import LambdaLR
-
-from pytorch_lightning.callbacks import ModelCheckpoint
+import pandas as pd
 import math
 import wandb
+import os
+import numpy as np
+from tqdm import tqdm
+from torch.optim.lr_scheduler import LambdaLR
+from pytorch_lightning.callbacks import ModelCheckpoint
 from sklearn.metrics import roc_auc_score
 
 
 class InteractionDataset(torch.utils.data.Dataset):
 
-    def __init__(self, dataset, filepath, seq_len=100, stride=50):
+    def __init__(self, uid2sequence, seq_len=100, stride=50):
         self.seq_len = seq_len
         if stride is None:
             self.stride = seq_len // 2
         else:
             self.stride = stride
-        if dataset in ['ednet', 'ednet_medium', 'ednet_small']:
-            with open(filepath, 'rb') as datafile:
-                self.uid2sequence = pkl.load(datafile)
+        self.uid2sequence = uid2sequence
         self.sample_list = []
         for uid, seq in tqdm(self.uid2sequence.items()):
             num_inter = len(seq['item_id'])
@@ -70,23 +70,53 @@ class InteractionDataset(torch.utils.data.Dataset):
         }
 
 
+def get_data(dataset):
+    data = {}
+    modes = ['train', 'val', 'test']
+    if dataset in ['ednet', 'ednet_small', 'ednet_medium']:
+        for mode in modes:
+            with open(f'data/{dataset}/{mode}_data.pkl', 'rb') as file:
+                data[mode] = pkl.load(file)
+    else:
+        train_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_train.csv'), sep="\t")
+        test_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_test.csv'), sep="\t")
+
+        data = {mode: {} for mode in modes}
+        for (uid, _data) in tqdm(test_df.groupby('user_id')):
+            seqs = _data.to_dict()
+            del seqs['user_id'], seqs['timestamp']
+            data['test'][uid] = {key: list(x.values()) for key, x in seqs.items()}
+        train_val = {}
+        for (uid, _data) in tqdm(train_df.groupby('user_id')):
+            seqs = _data.to_dict()
+            del seqs['user_id'], seqs['timestamp']
+            train_val[uid] = {key: list(x.values()) for key, x in seqs.items()}
+        num_val_users = len(train_val) // 4
+        _train_users = list(train_val.keys())
+        np.random.shuffle(_train_users)
+        val_users = _train_users[:num_val_users]
+        for uid, seq in train_val.items():
+            if uid in val_users:
+                data['val'][uid] = seq
+            else:
+                data['train'][uid] = seq
+    return data
+
+
 class DataModule(pl.LightningDataModule):
     def __init__(self, config):
         super().__init__()
+        self.data = get_data(config.dataset)
         train_data = InteractionDataset(
-            config.dataset,
-            f'data/{config.dataset}/train_data.pkl',
+            self.data['train'],
             seq_len=config.seq_len,
         )
         val_data = InteractionDataset(
-            config.dataset,
-            f'data/{config.dataset}/val_data.pkl',
+            self.data['train'],
             seq_len=config.seq_len,
-            # stride=1,
         )
         test_data = InteractionDataset(
-            config.dataset,
-            f'data/{config.dataset}/test_data.pkl',
+            self.data['test'],
             seq_len=config.seq_len,
             stride=1,
         )
@@ -117,6 +147,7 @@ class DataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return self.val_gen
+
 
 class AbsoluteDiscretePositionalEncoding(nn.Module):
     """
@@ -430,6 +461,10 @@ if __name__ == "__main__":
     if args.dataset in ['ednet', 'ednet_medium', 'ednet_small']:
         args.num_item = 14000
         args.num_skill = 300
+    else:
+        full_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data.csv'), sep="\t")
+        args.num_item = int(full_df["item_id"].max() + 1)
+        args.num_skill = int(full_df["skill_id"].max() + 1)
     # set random seed
     pl.seed_everything(args.random_seed)
 
