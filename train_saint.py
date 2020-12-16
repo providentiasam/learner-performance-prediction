@@ -112,7 +112,7 @@ class DataModule(pl.LightningDataModule):
             seq_len=config.seq_len,
         )
         val_data = InteractionDataset(
-            self.data['train'],
+            self.data['val'],
             seq_len=config.seq_len,
         )
         test_data = InteractionDataset(
