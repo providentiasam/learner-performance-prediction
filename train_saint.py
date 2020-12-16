@@ -23,7 +23,7 @@ class InteractionDataset(torch.utils.data.Dataset):
             self.stride = seq_len // 2
         else:
             self.stride = stride
-        if dataset in ['ednet', 'ednet_small']:
+        if dataset in ['ednet', 'ednet_medium', 'ednet_small']:
             with open(filepath, 'rb') as datafile:
                 self.uid2sequence = pkl.load(datafile)
         self.sample_list = []
@@ -427,7 +427,7 @@ if __name__ == "__main__":
             + f"_{int(time.time())}"
         )
 
-    if args.dataset in ['ednet', 'ednet_small']:
+    if args.dataset in ['ednet', 'ednet_medium', 'ednet_small']:
         args.num_item = 14000
         args.num_skill = 300
     # set random seed
