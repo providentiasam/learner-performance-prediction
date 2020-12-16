@@ -91,7 +91,7 @@ def get_data(dataset):
             seqs = _data.to_dict()
             del seqs['user_id'], seqs['timestamp']
             train_val[uid] = {key: list(x.values()) for key, x in seqs.items()}
-        num_val_users = len(train_val) // 4
+        num_val_users = len(train_val) // 8
         _train_users = list(train_val.keys())
         np.random.shuffle(_train_users)
         val_users = _train_users[:num_val_users]
