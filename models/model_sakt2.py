@@ -9,7 +9,7 @@ from models.model_sakt import future_mask, clone, attention, relative_attention,
 
 class SAKT(nn.Module):
     def __init__(self, num_items, num_skills, embed_size, num_attn_layers, num_heads,
-                 encode_pos, max_pos, drop_prob):
+                 encode_pos, max_pos, drop_prob, dim_feedforward=None, activation='relu'):
         """Self-attentive knowledge tracing.
 
         Arguments:
@@ -25,6 +25,7 @@ class SAKT(nn.Module):
         super(SAKT, self).__init__()
         self.embed_size = embed_size
         self.encode_pos = encode_pos
+        self.dim_feedforward = dim_feedforward
 
         if 1: 
             self.item_embeds = nn.Embedding(num_items + 1, embed_size // 2, padding_idx=0)
@@ -38,10 +39,15 @@ class SAKT(nn.Module):
 
         self.lin_in = nn.Linear(2 * embed_size, embed_size)
         self.attn_layers = clone(MultiHeadedAttention(embed_size, num_heads, drop_prob), num_attn_layers)
-        self.layer_norms = clone(nn.LayerNorm(embed_size), num_attn_layers)
-        self.dropouts = clone(nn.Dropout(p=drop_prob), num_attn_layers)
+        self.layer_norms = clone(nn.LayerNorm(embed_size), num_attn_layers * 2)
+        self.dropouts = clone(nn.Dropout(p=drop_prob), num_attn_layers * 2)
+        if dim_feedforward is not None:
+            self.ff_dropouts = clone(nn.Dropout(p=drop_prob), num_attn_layers)
+            self.linear1_layers = clone(nn.Linear(embed_size, dim_feedforward), num_attn_layers)
+            self.linear2_layers = clone(nn.Linear(dim_feedforward, embed_size), num_attn_layers)
+            self.activation=activation
+
         self.lin_out = nn.Linear(embed_size, 1)
-        # self.lin_out = nn.Linear(embed_size, num_skills)
         
     def get_inputs(self, item_inputs, skill_inputs, label_inputs):
         if 1:
@@ -78,19 +84,15 @@ class SAKT(nn.Module):
         if inputs.is_cuda:
             mask = mask.cuda()
 
-        # outputs = self.layer_norms[0](
-        #     self.dropouts[0](
-        #         self.attn_layers[0](
-        #             query, inputs, inputs, self.encode_pos,
-        #             self.pos_key_embeds, self.pos_value_embeds, mask)))
-        
-        outputs = self.dropouts[0](self.attn_layers[0](
-            query, inputs, inputs, self.encode_pos,
-                    self.pos_key_embeds, self.pos_value_embeds, mask))
+        for i, l in enumerate(self.attn_layers):
+            outputs = l((query if i==0 else inputs), inputs, inputs, self.encode_pos,\
+                self.pos_key_embeds, self.pos_value_embeds, mask)
+            inputs = inputs + self.dropouts[2*i](outputs)
+            if self.dim_feedforward is not None:
+                inputs = self.layer_norms[2*i](inputs)
+                outputs = self.linear2_layers[i](self.ff_dropouts[i](\
+                    self.activation(self.linear1_layers[i](inputs))))
+                inputs = inputs + self.dropouts[2*i + 1](outputs)
+            inputs = self.layer_norms[2*i + 1](inputs)
 
-        for i, l in enumerate(self.attn_layers[1:]):
-            residual = l(outputs, outputs, outputs, self.encode_pos, self.pos_key_embeds,
-                         self.pos_value_embeds, mask)
-            outputs = self.dropouts[i+1](outputs + F.relu(residual))
-
-        return self.lin_out(outputs)
+        return self.lin_out(inputs)

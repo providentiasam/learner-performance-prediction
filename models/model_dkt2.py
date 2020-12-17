@@ -26,7 +26,7 @@ class DKT2(nn.Module):
         self.dropout = nn.Dropout(p=drop_prob)
 
         self.lin1 = nn.Linear(hid_size + embed_size, hid_size)
-        self.lin2 = nn.Linear(hid_size, 1)
+        self.lin2 = nn.Linear(hid_size, 1) # MAJOR CHANGE FROM DKT1
 
     def forward(self, item_inputs, skill_inputs, label_inputs, item_ids, skill_ids):
         inputs = self.get_inputs(item_inputs, skill_inputs, label_inputs)

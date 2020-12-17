@@ -5,13 +5,13 @@ from random import shuffle
 from sklearn.metrics import roc_auc_score, accuracy_score
 
 import torch.nn as nn
-from torch.optim import Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pad_sequence
 
 from models.model_sakt2 import SAKT
 from utils import *
+import os
 
 
 def window_split(x, window_size=100, stride=50, return_nonoverlap=False):
@@ -138,13 +138,13 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
     step = 0
 
     if optimizer == 'adam':
-        optimizer = Adam(model.parameters(), lr=args.lr)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         scheduler = None
     elif optimizer == 'noam':
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         def noam(step: int):
             step = max(1, step)
-            warmup_steps = 1000
+            warmup_steps = 2000
             scale = warmup_steps ** 0.5 * min(
                 step ** (-0.5), step * warmup_steps ** (-1.5))
             return scale
@@ -210,30 +210,44 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str, default='ednet_medium')
+    parser.add_argument('--setup', type=str, default='ednet_small')
     args_ = parser.parse_args()
-
-    setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
-    setup_page = pd.read_excel(setup_path)
-    result_cols = ['test1', 'test2', 'test3', 'valid1', 'valid2', 'valid3',\
-        'logdir', 'savedir']
+    DEBUGGING = True
+    if DEBUGGING:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"  
+        setup_path = './setups/sakt_loop_test.xlsx'
+        setup_page = pd.DataFrame([{
+            'dataset': 'ednet',
+            'num_attn_layers': 3,
+            'max_length': 200,
+            'embed_size': 50,
+            'num_heads': 5,
+            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.2, 'batch_size': 500, 'optimizer': 'noam',
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 500, 'repeat': 3, 'stride': 100, 'dim_ff': 30
+        }])
+    else:
+        setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
+        setup_page = pd.read_excel(setup_path)
+    
+  
+    result_cols = ['test1', 'test2', 'test3', 'valid1', 'valid2', 'valid3', 'logdir', 'savedir']
+    setup_cols = [x for x in setup_page.columns if x not in result_cols]
+    dataset = args_.setup if 'dataset' not in setup_cols else setup_page['dataset'].iloc[0]
     for col in result_cols:
         if col not in setup_page.columns:
-            setup_page[col] = np.nan
-    setup_cols = [x for x in setup_page.columns if x not in result_cols]
+            setup_page[col] = np.nan    
     setup_page[setup_cols] = setup_page[setup_cols].ffill()
     
-    
-    full_df = pd.read_csv(os.path.join('data', args_.setup, 'preprocessed_data.csv'), sep="\t")
-    train_df = pd.read_csv(os.path.join('data', args_.setup, 'preprocessed_data_train.csv'), sep="\t")
-    test_df = pd.read_csv(os.path.join('data', args_.setup, 'preprocessed_data_test.csv'), sep="\t")
+    full_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data.csv'), sep="\t")
+    train_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_train.csv'), sep="\t")
+    test_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_test.csv'), sep="\t")
 
     for setup_index in setup_page.index:
         args = setup_page.loc[setup_index]
-        setup_page.loc[setup_index, 'logdir'] = 'runs/sakt/' + args_.setup + '/'
-        setup_page.loc[setup_index, 'savedir'] = 'save/sakt/' + args_.setup + '/'
+        setup_page.loc[setup_index, 'logdir'] = 'runs/sakt/' + dataset + '/'
+        setup_page.loc[setup_index, 'savedir'] = 'save/sakt/' + dataset + '/'
         args = setup_page.loc[setup_index]
-        args.loc['dataset'] = args_.setup
+        args.loc['dataset'] = dataset
         print(args)
         stop_experiment = False # Stop current setup for whatever reason possible.
         if args[['test1', 'test2', 'test3']].notnull().all():
@@ -258,7 +272,7 @@ if __name__ == "__main__":
                     param_str = '_'.join([str(x) + str(y) for x, y in args.to_dict().items()])[:200]
                     optimizer = 'adam' if 'optimizer' not in args.index else args['optimizer']
                     logger = Logger(os.path.join(args.logdir, param_str))
-                    saver = Saver(args.savedir, param_str, patience=7 if args_.setup not in {'ednet', 'ednet_medium'} else 3)
+                    saver = Saver(args.savedir, param_str, patience=7 if dataset not in {'ednet', 'ednet_medium'} else 3)
                     train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),
                         int(args.batch_size), args.grad_clip)
                     break
