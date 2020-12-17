@@ -1,6 +1,7 @@
 import os
 import shutil
 from tensorboardX import SummaryWriter
+import numpy as np
 
 
 class Logger:
@@ -24,7 +25,7 @@ class Logger:
     def log_scalars(self, dic, step):
         """Log dictionary of scalar values. """
         for k, v in dic.items():
-            self.writer.add_scalar(k, v, step)
+            self.writer.add_scalar(k, np.round(v, 4), step)
 
         if self.verbose:
             print(f"Step {step}, {dic}")
