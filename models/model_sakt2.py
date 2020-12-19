@@ -1,7 +1,6 @@
 import copy
 import math
 import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,12 +26,8 @@ class SAKT(nn.Module):
         self.encode_pos = encode_pos
         self.dim_feedforward = dim_feedforward
 
-        if 1: 
-            self.item_embeds = nn.Embedding(num_items + 1, embed_size // 2, padding_idx=0)
-            self.skill_embeds = nn.Embedding(num_skills + 1, embed_size // 2, padding_idx=0)
-        else:
-            self.item_embeds = nn.Embedding(num_items + 1, embed_size, padding_idx=0)
-            self.skill_embeds = nn.Embedding(num_skills + 1, embed_size, padding_idx=0)
+        self.item_embeds = nn.Embedding(num_items + 1, embed_size // 2, padding_idx=0)
+        self.skill_embeds = nn.Embedding(num_skills + 1, embed_size // 2, padding_idx=0)
 
         self.pos_key_embeds = nn.Embedding(max_pos, embed_size // num_heads)
         self.pos_value_embeds = nn.Embedding(max_pos, embed_size // num_heads)
@@ -75,8 +70,8 @@ class SAKT(nn.Module):
 
     def forward(self, item_inputs, skill_inputs, label_inputs, item_ids, skill_ids):
         inputs = self.get_inputs(item_inputs, skill_inputs, label_inputs)
-        inputs = self.lin_in(inputs)
-        # inputs = F.relu(self.lin_in(inputs))
+        # inputs = self.lin_in(inputs)
+        inputs = F.relu(self.lin_in(inputs))
 
         query = self.get_query(item_ids, skill_ids)
 
