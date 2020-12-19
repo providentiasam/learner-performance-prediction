@@ -38,4 +38,5 @@ class Saver:
         return stop
 
     def load(self):
+        print('Loading: ', self.path)
         return torch.load(self.path)

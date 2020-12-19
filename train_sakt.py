@@ -93,6 +93,7 @@ def prepare_batches(data, batch_size, randomize=True):
     batches = []
 
     for k in range(0, len(data), batch_size):
+        print(k)
         batch = data[k:k + batch_size]
         seq_lists = list(zip(*batch))
         inputs_and_ids = [pad_sequence(seqs, batch_first=True, padding_value=0)
@@ -144,7 +145,11 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         def noam(step: int):
             step = max(1, step)
+<<<<<<< HEAD
             warmup_steps = 3000
+=======
+            warmup_steps = 4000
+>>>>>>> e165693183e8213abb3b4f8a92bc8ce586be212f
             scale = warmup_steps ** 0.5 * min(
                 step ** (-0.5), step * warmup_steps ** (-1.5))
             return scale
@@ -213,7 +218,9 @@ if __name__ == "__main__":
     parser.add_argument('--setup', type=str, default='ednet_small')
     args_ = parser.parse_args()
     DEBUGGING = True
+    TRAIN = False
     if DEBUGGING:
+<<<<<<< HEAD
         os.environ["CUDA_VISIBLE_DEVICES"] = "6, 7"  
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
@@ -225,6 +232,19 @@ if __name__ == "__main__":
             'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.1, 'batch_size': 600, 'optimizer': 'noam',
             'lr': 0.003, 'grad_clip': 10, 'num_epochs': 5000, 'repeat': 1, 'stride': 50, 'dim_ff': 512
         }, {'num_attn_layers': 4}, {'num_attn_layers': 3}, {'num_attn_layers': 2}])
+=======
+        os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2, 3, 4"  
+        setup_path = './setups/sakt_loop_test.xlsx'
+        setup_page = pd.DataFrame([{
+            'dataset': 'ednet',
+            'num_attn_layers': 4,
+            'max_length': 200,
+            'embed_size': 100,
+            'num_heads': 10,
+            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.2, 'batch_size': 150, 'optimizer': 'noam',
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 500, 'repeat': 3, 'stride': 100, 'dim_ff': 50
+        }])
+>>>>>>> e165693183e8213abb3b4f8a92bc8ce586be212f
     else:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
         setup_page = pd.read_excel(setup_path)
@@ -273,12 +293,17 @@ if __name__ == "__main__":
                     optimizer = 'adam' if 'optimizer' not in args.index else args['optimizer']
                     logger = Logger(os.path.join(args.logdir, param_str))
                     saver = Saver(args.savedir, param_str, patience=7 if dataset not in {'ednet', 'ednet_medium'} else 3)
-                    train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),
-                        int(args.batch_size), args.grad_clip)
+                    if TRAIN:
+                        train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),
+                            int(args.batch_size), args.grad_clip)
                     break
                 except RuntimeError:
                     args.loc['batch_size'] = args.batch_size // 2
+<<<<<<< HEAD
                     setup_page.loc[setup_index, 'bach_size'] = args.loc['batch_size']
+=======
+                    setup_page.loc[setup_index, 'bach_size'] = args['batch_size']
+>>>>>>> e165693183e8213abb3b4f8a92bc8ce586be212f
                     print(f'Batch does not fit on gpu, reducing size to {args.batch_size}')
                     if args.batch_size < 25:
                         stop_experiment = True
@@ -287,11 +312,12 @@ if __name__ == "__main__":
                 print('GPU too small to create meaningfully large mini-batch.')
                 break
             model = saver.load()
-
+            
             if 1:
+                print('Testing...')
                 test_data, _ = get_data(test_df, int(args.max_length), train_split=1.0, \
-                    randomize=False, stride=1, non_overlap_only=True)
-                test_batches = prepare_batches(test_data, int(args.batch_size), randomize=False)
+                    randomize=False, stride=10, non_overlap_only=True)
+                test_batches = prepare_batches(test_data, batch_size=32, randomize=False)
                 test_preds = np.empty(0)
                 model.eval()
                 for item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels in test_batches:
