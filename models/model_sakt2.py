@@ -75,8 +75,8 @@ class SAKT(nn.Module):
 
     def forward(self, item_inputs, skill_inputs, label_inputs, item_ids, skill_ids):
         inputs = self.get_inputs(item_inputs, skill_inputs, label_inputs)
-        inputs = self.lin_in(inputs)
-        # inputs = F.relu(self.lin_in(inputs))
+        # inputs = self.lin_in(inputs)
+        inputs = F.relu(self.lin_in(inputs))
 
         query = self.get_query(item_ids, skill_ids)
 

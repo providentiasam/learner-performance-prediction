@@ -144,7 +144,7 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         def noam(step: int):
             step = max(1, step)
-            warmup_steps = 2000
+            warmup_steps = 3000
             scale = warmup_steps ** 0.5 * min(
                 step ** (-0.5), step * warmup_steps ** (-1.5))
             return scale
@@ -214,17 +214,17 @@ if __name__ == "__main__":
     args_ = parser.parse_args()
     DEBUGGING = True
     if DEBUGGING:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"  
+        os.environ["CUDA_VISIBLE_DEVICES"] = "6, 7"  
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
-            'dataset': 'ednet',
-            'num_attn_layers': 3,
-            'max_length': 200,
-            'embed_size': 50,
-            'num_heads': 5,
-            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.2, 'batch_size': 500, 'optimizer': 'noam',
-            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 500, 'repeat': 3, 'stride': 100, 'dim_ff': 30
-        }])
+            'dataset': 'ednet_medium',
+            'num_attn_layers': 5,
+            'max_length': 100,
+            'embed_size': 256,
+            'num_heads': 8,
+            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.1, 'batch_size': 600, 'optimizer': 'noam',
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 5000, 'repeat': 1, 'stride': 50, 'dim_ff': 512
+        }, {'num_attn_layers': 4}, {'num_attn_layers': 3}, {'num_attn_layers': 2}])
     else:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
         setup_page = pd.read_excel(setup_path)
@@ -278,6 +278,7 @@ if __name__ == "__main__":
                     break
                 except RuntimeError:
                     args.loc['batch_size'] = args.batch_size // 2
+                    setup_page.loc[setup_index, 'bach_size'] = args.loc['batch_size']
                     print(f'Batch does not fit on gpu, reducing size to {args.batch_size}')
                     if args.batch_size < 25:
                         stop_experiment = True
