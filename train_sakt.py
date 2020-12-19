@@ -216,7 +216,7 @@ if __name__ == "__main__":
     DEBUGGING = True
     TRAIN = False
     if DEBUGGING:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3, 4"  
+        os.environ["CUDA_VISIBLE_DEVICES"] = "1, 2, 3, 4"  
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
             'dataset': 'ednet',
@@ -294,8 +294,8 @@ if __name__ == "__main__":
             if 1:
                 print('Testing...')
                 test_data, _ = get_data(test_df, int(args.max_length), train_split=1.0, \
-                    randomize=False, stride=1, non_overlap_only=True)
-                test_batches = prepare_batches(test_data, batch_size=50, randomize=False)
+                    randomize=False, stride=10, non_overlap_only=True)
+                test_batches = prepare_batches(test_data, batch_size=32, randomize=False)
                 test_preds = np.empty(0)
                 model.eval()
                 for item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels in test_batches:
