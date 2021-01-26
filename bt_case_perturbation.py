@@ -6,19 +6,27 @@ import random
 
 def test_perturbation(bt_test_df, diff_threshold=0.05):
     bt_test_df['testpass'] = False
-    user_group_df = bt_test_df.groupby('orig_user_id')
+    user_group_df = bt_test_df.groupby(['orig_user_id', 'orig_idx'])
     for name, group in user_group_df:
-        orig_prob = group.loc[group['is_perturbed'] == 0]['model_pred'].item()
-        corr_prob = group.loc[group['is_perturbed'] == 1]['model_pred'].item()
-        incorr_prob = group.loc[group['is_perturbed'] == -1]['model_pred'].item()
-        if corr_prob >= orig_prob - diff_threshold:
-            bt_test_df.loc[
-                (bt_test_df['orig_user_id'] == name) & (bt_test_df['is_perturbed'] == 1),
-                'testpass'] = True
-        if incorr_prob <= orig_prob + diff_threshold:
-            bt_test_df.loc[
-                (bt_test_df['orig_user_id'] == name) & (bt_test_df['is_perturbed'] == -1),
-                'testpass'] = True
+        orig_prob = group.loc[(group['is_perturbed'] == 0)]['model_pred']
+        corr_prob = group.loc[group['is_perturbed'] == 1]['model_pred']
+        incorr_prob = group.loc[group['is_perturbed'] == -1]['model_pred']
+        if len(orig_prob) != 1:
+            continue
+        if len(corr_prob) == 1:
+            if corr_prob.item() >= orig_prob.item() - diff_threshold:
+                bt_test_df.loc[
+                    (bt_test_df['orig_user_id'] == name[0]) &
+                    (bt_test_df['orig_idx'] == name[1]) &
+                    (bt_test_df['is_perturbed'] == 1),
+                    'testpass'] = True
+        if len(incorr_prob) == 1:
+            if incorr_prob.item() <= orig_prob.item() + diff_threshold:
+                bt_test_df.loc[
+                    (bt_test_df['orig_user_id'] == name[0]) &
+                    (bt_test_df['orig_idx'] == name[1]) &
+                    (bt_test_df['is_perturbed'] == -1),
+                    'testpass'] = True
 
     result_df = user_group_df.loc[user_group_df['is_perturbed'] != 0]
     groupby_key = ['all', 'is_perturbed']
@@ -83,15 +91,17 @@ def perturb_add_last_random(orig_df):
 
 def perturb_insertion(orig_df, copy_idx, insert_idx, corr_value):
     new_df = deepcopy(orig_df.iloc[[copy_idx]])
-    new_df.loc[:, "correct"] = corr_value
+    new_df["correct"] = corr_value
+    new_df['orig_idx'] = -1
     orig_df = orig_df.iloc[:insert_idx].append(new_df)\
         .append(orig_df.iloc[insert_idx:]).reset_index(drop=True)
     return orig_df
 
 
 def perturb_insertion_random(orig_df, insert_policy=None):
-    orig_df.loc[:, 'orig_user_id'] = orig_df['user_id']
-    orig_df.loc[:, 'is_perturbed'] = 0
+    orig_df['orig_user_id'] = orig_df['user_id']
+    orig_df['orig_idx'] = orig_df.index
+    orig_df['is_perturbed'] = 0
     copy_idx = random.randrange(0, len(orig_df))
     if insert_policy == "first":
         insert_idx = 0
@@ -103,24 +113,25 @@ def perturb_insertion_random(orig_df, insert_policy=None):
         insert_idx = random.randrange(0, len(orig_df))
     corr_df = perturb_insertion(orig_df, copy_idx, insert_idx, 1)
     corr_df.loc[:, 'user_id'] = corr_df['user_id'].astype(str) + "_corr"
-    corr_df.loc[:, 'is_perturbed'] = 1
+    corr_df.loc[insert_idx+1:, 'is_perturbed'] = 1
     incorr_df = perturb_insertion(orig_df, copy_idx, insert_idx, 0)
     incorr_df.loc[:, 'user_id'] = incorr_df['user_id'].astype(str) + "_incorr"
-    incorr_df.loc[:, 'is_perturbed'] = -1
+    incorr_df.loc[insert_idx+1:, 'is_perturbed'] = -1
 
     new_df_list = [orig_df, corr_df, incorr_df]
     return pd.concat(new_df_list, axis=0).reset_index(drop=True)
 
 
 def perturb_delete(orig_df, row_index):
-    orig_df.loc[:, 'is_perturbed'] = 1 if (orig_df.iloc[row_index]['correct'] == 1) else -1
+    orig_df.loc[row_index:, 'is_perturbed'] = 1 if (orig_df.iloc[row_index]['correct'] == 1) else -1
     orig_df = orig_df.iloc[:row_index].append(orig_df.iloc[row_index+1:]).reset_index(drop=True)
     return orig_df
 
 
 def perturb_delete_random(orig_df, delete_policy=None):
-    orig_df.loc[:, 'orig_user_id'] = orig_df['user_id']
-    orig_df.loc[:, 'is_perturbed'] = 0
+    orig_df['orig_user_id'] = orig_df['user_id']
+    orig_df['is_perturbed'] = 0
+    orig_df['orig_idx'] = orig_df.index
     if delete_policy == "first":
         row_idx = 0
     elif delete_policy == "middle":
@@ -129,7 +140,6 @@ def perturb_delete_random(orig_df, delete_policy=None):
         row_idx = len(orig_df) - 1
     else:
         row_idx = random.randrange(0, len(orig_df))
-    row_index = random.randrange(0, len(orig_df))
     new_df = perturb_delete(orig_df, row_idx)
     new_df.loc[:, 'user_id'] = new_df['user_id'].astype(str) + "_del"
     new_df_list = [orig_df, new_df]
