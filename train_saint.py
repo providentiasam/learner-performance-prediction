@@ -29,7 +29,7 @@ class InteractionDataset(torch.utils.data.Dataset):
             self.stride = stride
         self.last_max_seq_only = last_max_seq_only  # If True, test last max-seq-len interaction only.
         self.last_interaction_only = last_interaction_only  # If True, test last single interaction only.
-        # TODO: Resolve two variables into a single test-mode variable.
+        # TODO: Resolve above two variables into a single test_mode variable.
         self.uid2sequence = uid2sequence
         self.sample_list = []
         for uid, seq in tqdm(self.uid2sequence.items()):
@@ -128,7 +128,7 @@ class DataModule(pl.LightningDataModule):
         self.data = get_data(config.dataset, overwrite_test_df=overwrite_test_df)
         if overwrite_test_df is None:
             train_data = InteractionDataset(self.data["train"], seq_len=config.seq_len,)
-            val_data = InteractionDataset(self.data["val"], seq_len=config.seq_len,)
+            val_data = InteractionDataset(self.data["val"], seq_len=config.seq_len, stride=10)
             self.train_gen = torch.utils.data.DataLoader(
                 dataset=train_data,
                 shuffle=True,
@@ -146,7 +146,7 @@ class DataModule(pl.LightningDataModule):
             self.val_gen = None
 
         test_data = InteractionDataset(
-            self.data["test"], seq_len=config.seq_len, \
+            self.data["test"], stride=1, seq_len=config.seq_len, \
                 last_max_seq_only=False, last_interaction_only=last_one_only
         )
         self.test_gen = torch.utils.data.DataLoader(
@@ -457,27 +457,27 @@ def predict_saint(saint_model, dataloader):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--use_wandb", type=str2bool, default=False)
-    parser.add_argument("--project", type=str)
-    parser.add_argument("--name", type=str)
+    parser.add_argument("--use_wandb", type=str2bool, default=True)
+    parser.add_argument("--project", type=str, default='rebenchmark')
+    parser.add_argument("--name", type=str, default='saint')
     parser.add_argument("--val_check_steps", type=int, default=50)
     parser.add_argument("--random_seed", type=int, default=2)
     parser.add_argument("--num_steps", type=int, default=10000)
-    parser.add_argument("--train_batch", type=int, default=128)
-    parser.add_argument("--test_batch", type=int, default=128)
-    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--train_batch", type=int, default=64)
+    parser.add_argument("--test_batch", type=int, default=64)
+    parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--eval_steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--gpu", type=str, default="3,4,5")
-    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--gpu", type=str, default="0,1,2,3")
+    parser.add_argument("--device", type=str, default="gpu")
     parser.add_argument("--layer_count", type=int, default=2)
     parser.add_argument("--head_count", type=int, default=8)
     parser.add_argument("--warmup_step", type=int, default=4000)
-    parser.add_argument("--dim_model", type=int, default=256)
-    parser.add_argument("--dim_ff", type=int, default=1024)
-    parser.add_argument("--seq_len", type=int, default=100)
-    parser.add_argument("--dropout_rate", type=float, default=0.1)
-    parser.add_argument("--dataset", type=str, default="ednet")
+    parser.add_argument("--dim_model", type=int, default=64)
+    parser.add_argument("--dim_ff", type=int, default=256)
+    parser.add_argument("--seq_len", type=int, default=150)
+    parser.add_argument("--dropout_rate", type=float, default=0.2)
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     args = parser.parse_args()
 
     # parse gpus
@@ -518,12 +518,14 @@ if __name__ == "__main__":
     )
     trainer = pl.Trainer(
         gpus=args.gpu,
+        accelerator='ddp',
         callbacks=[checkpoint_callback],
         max_steps=args.num_steps,
     )
     # initialize wandb
     if args.use_wandb:
         wandb.init(project=args.project, name=args.name, config=args)
+        print('wandb init')
     trainer.fit(model=model, datamodule=datamodule)
     checkpoint_path = checkpoint_callback.best_model_path
     model = SAINT.load_from_checkpoint(checkpoint_path, config=args)

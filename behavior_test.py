@@ -13,7 +13,7 @@ from bt_case_perturbation import (
     gen_perturbation, test_perturbation,
     perturb_insertion_random, perturb_delete_random, perturb_replace_random,
 )
-from bt_case_reconstruction import gen_seq_reconstruction, test_simple
+from bt_case_reconstruction import gen_knowledge_state, test_simple, test_knowledge_state
 from bt_case_repetition import gen_repeated_feed
 from utils import *
 import pytorch_lightning as pl
@@ -22,13 +22,13 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="spanish")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "sakt", "saint"], default="dkt")
-    parser.add_argument("--test_type", type=str, default="original")
+    parser.add_argument("--test_type", type=str, default="reconstruction")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="spanish")
-    parser.add_argument("--gpu", type=str, default="0,1")
+    parser.add_argument("--filename", type=str, default="ednet_small")
+    parser.add_argument("--gpu", type=str, default="0,1,2,3")
     parser.add_argument("--diff_threshold", type=float, default=0.05)
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -38,6 +38,7 @@ if __name__ == "__main__":
         checkpoint_path = f'./save/{args.model}/' + args.filename + '.ckpt'
         with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'rb') as file:
             model_config = argparse.Namespace(**pickle.load(file))
+        print(model_config)
         model = SAINT.load_from_checkpoint(checkpoint_path, config=model_config\
             ).to(torch.device("cuda"))
         model.eval()
@@ -50,15 +51,18 @@ if __name__ == "__main__":
     test_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
     )
+
     test_kwargs = {
         'item_or_skill': 'item', 
-        'perturb_func': {
+    }
+    if args.test_type in ['insertion', 'deletion', 'replacement']:
+        test_kwargs['insertion_policy'] = 'middle'
+        test_kwargs['perturb_func'] = {
             'insertion': perturb_insertion_random,
             'deletion': perturb_delete_random,
             'replacement': perturb_replace_random,
-        }[args.test_type],
-        'insertion_policy': 'middle'
-    }
+        }[args.test_type]
+
     last_one_only = {
         'reconstruction': True, 'repetition': False, 'insertion': False,
         'deletion': False, 'replacement': False, 'original': False
@@ -67,7 +71,7 @@ if __name__ == "__main__":
 
     # 2. GENERATE TEST DATA.
     gen_funcs = {
-        'reconstruction': gen_seq_reconstruction,
+        'reconstruction': gen_knowledge_state,
         'repetition': gen_repeated_feed,
         'insertion': gen_perturbation,
         'deletion': gen_perturbation,
@@ -76,7 +80,7 @@ if __name__ == "__main__":
     }
     bt_test_df, test_info = gen_funcs[args.test_type](test_df, **test_kwargs)
         # bt_test_df: generated test dataset for behavioral testing
-        # test_info: any meta information stored w.r.t the test case
+        # test_info: any meta information stored w.r.t the test cas6e
 
 
     # 3. FEED TEST DATA.
@@ -86,7 +90,8 @@ if __name__ == "__main__":
     original_test_df = bt_test_df.copy()
     original_test_df.to_csv(bt_test_path)
     if args.model == 'saint':
-        datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, last_one_only=last_one_only)
+        datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
+            last_one_only=last_one_only)
         trainer = pl.Trainer(auto_select_gpus=True, callbacks=[], max_steps=0)
         bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_dataloader())
         if last_one_only:
@@ -103,7 +108,7 @@ if __name__ == "__main__":
 
     # 4. CHECK PASS CONDITION AND RUN CASE-SPECIFIC ANALYSIS.
     test_funcs = {
-        'reconstruction': test_simple,
+        'reconstruction': test_knowledge_state,
         'repetition': test_simple,
         'insertion': test_perturbation,
         'deletion': test_perturbation,
