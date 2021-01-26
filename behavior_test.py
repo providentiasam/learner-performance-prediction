@@ -10,8 +10,8 @@ from train_dkt2 import get_data, prepare_batches, eval_batches
 from train_saint import SAINT, DataModule, predict_saint
 
 from bt_case_perturbation import (
-    gen_perturbation,
-    perturb_insertion_random, perturb_delete_random, test_perturbation,
+    gen_perturbation, test_perturbation,
+    perturb_insertion_random, perturb_delete_random, perturb_replace_random,
 )
 from bt_case_reconstruction import gen_seq_reconstruction, test_simple
 from bt_case_repetition import gen_repeated_feed
@@ -54,12 +54,15 @@ if __name__ == "__main__":
         'item_or_skill': 'item', 
         'perturb_func': {
             'insertion': perturb_insertion_random,
-            'deletion': perturb_delete_random
+            'deletion': perturb_delete_random,
+            'replacement': perturb_replace_random,
         }[args.test_type],
         'insertion_policy': 'middle'
-        }
-    last_one_only = {'reconstruction': True, 'repetition': False, \
-        'insertion': False, 'original': False}[args.test_type]
+    }
+    last_one_only = {
+        'reconstruction': True, 'repetition': False, 'insertion': False,
+        'deletion': False, 'replacement': False, 'original': False
+    }[args.test_type]
 
 
     # 2. GENERATE TEST DATA.
@@ -68,6 +71,7 @@ if __name__ == "__main__":
         'repetition': gen_repeated_feed,
         'insertion': gen_perturbation,
         'deletion': gen_perturbation,
+        'replacement': gen_perturbation,
         'original': lambda x: x
     }
     bt_test_df, test_info = gen_funcs[args.test_type](test_df, **test_kwargs)
@@ -103,6 +107,7 @@ if __name__ == "__main__":
         'repetition': test_simple,
         'insertion': test_perturbation,
         'deletion': test_perturbation,
+        'replacement': test_perturbation,
         'original': lambda x: test_simple(x, testcol='correct')
     }
     result_df, groupby_key = test_funcs[args.test_type](bt_test_df)

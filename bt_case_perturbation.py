@@ -145,6 +145,36 @@ def perturb_delete_random(orig_df, delete_policy=None):
     new_df_list = [orig_df, new_df]
     return pd.concat(new_df_list, axis=0).reset_index(drop=True)
 
+
+def perturb_replace(orig_df, copy_idx, insert_idx, corr_value):
+    new_df = perturb_insertion(orig_df, copy_idx, insert_idx, corr_value)
+    del_df = perturb_delete(new_df, insert_idx+1)
+    return del_df
+
+
+def perturb_replace_random(orig_df, replace_policy=None):
+    orig_df['orig_user_id'] = orig_df['user_id']
+    orig_df['orig_idx'] = orig_df.index
+    orig_df['is_perturbed'] = 0
+    copy_idx = random.randrange(0, len(orig_df))
+    if replace_policy == "first":
+        insert_idx = 0
+    elif replace_policy == "middle":
+        insert_idx = len(orig_df) // 2
+    elif replace_policy == "last":
+        insert_idx = len(orig_df) - 1
+    else:
+        insert_idx = random.randrange(0, len(orig_df))
+    corr_df = perturb_replace(orig_df, copy_idx, insert_idx, 1)
+    corr_df.loc[:, 'user_id'] = corr_df['user_id'].astype(str) + "_corr"
+    corr_df.loc[insert_idx+1:, 'is_perturbed'] = 1
+    incorr_df = perturb_replace(orig_df, copy_idx, insert_idx, 0)
+    incorr_df.loc[:, 'user_id'] = incorr_df['user_id'].astype(str) + "_incorr"
+    incorr_df.loc[insert_idx+1:, 'is_perturbed'] = -1
+
+    new_df_list = [orig_df, corr_df, incorr_df]
+    return pd.concat(new_df_list, axis=0).reset_index(drop=True)
+
 # depercated templates
 
 
