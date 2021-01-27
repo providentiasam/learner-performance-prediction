@@ -53,10 +53,13 @@ if __name__ == "__main__":
     )
 
     test_kwargs = {
-        'item_or_skill': 'item', 
     }
+
+    if args.test_type in ['reconstruction', 'repetition', 'original']:
+        test_kwargs['item_or_skill'] = 'item'
+
     if args.test_type in ['insertion', 'deletion', 'replacement']:
-        test_kwargs['insertion_policy'] = 'middle'
+        test_kwargs['insert_policy'] = 'middle'
         test_kwargs['perturb_func'] = {
             'insertion': perturb_insertion_random,
             'deletion': perturb_delete_random,
