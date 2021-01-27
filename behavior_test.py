@@ -1,4 +1,5 @@
 import argparse
+from bt_case_question_prior import gen_question_prior
 import pandas as pd
 import torch
 
@@ -13,8 +14,9 @@ from bt_case_perturbation import (
     gen_perturbation, test_perturbation,
     perturb_insertion_random, perturb_delete_random, perturb_replace_random,
 )
-from bt_case_reconstruction import gen_knowledge_state, test_simple, test_knowledge_state
+from bt_case_reconstruction import gen_knowledge_state, test_knowledge_state, test_simple
 from bt_case_repetition import gen_repeated_feed
+from bt_case_question_prior import gen_question_prior, test_question_prior
 from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
@@ -22,12 +24,12 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "sakt", "saint"], default="dkt")
-    parser.add_argument("--test_type", type=str, default="reconstruction")
+    parser.add_argument("--test_type", type=str, default="question_prior")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="ednet_small")
+    parser.add_argument("--filename", type=str, default="spanish")
     parser.add_argument("--gpu", type=str, default="0,1,2,3")
     parser.add_argument("--diff_threshold", type=float, default=0.05)
     args = parser.parse_args()
@@ -50,13 +52,16 @@ if __name__ == "__main__":
 
     test_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
-    )
+    )  # Original Test-split DataFrame
 
     test_kwargs = {
-        'item_or_skill': 'item', 
     }
+
+    if args.test_type in ['reconstruction', 'repetition', 'original']:
+        test_kwargs['item_or_skill'] = 'item'
+
     if args.test_type in ['insertion', 'deletion', 'replacement']:
-        test_kwargs['insertion_policy'] = 'middle'
+        test_kwargs['insert_policy'] = 'middle'
         test_kwargs['perturb_func'] = {
             'insertion': perturb_insertion_random,
             'deletion': perturb_delete_random,
@@ -65,7 +70,8 @@ if __name__ == "__main__":
 
     last_one_only = {
         'reconstruction': True, 'repetition': False, 'insertion': False,
-        'deletion': False, 'replacement': False, 'original': False
+        'deletion': False, 'replacement': False, 'original': False, 
+        'question_prior': False
     }[args.test_type]
 
 
@@ -76,11 +82,12 @@ if __name__ == "__main__":
         'insertion': gen_perturbation,
         'deletion': gen_perturbation,
         'replacement': gen_perturbation,
+        'question_prior': gen_question_prior,
         'original': lambda x: x
     }
-    bt_test_df, test_info = gen_funcs[args.test_type](test_df, **test_kwargs)
+    bt_test_df, other_info = gen_funcs[args.test_type](test_df, **test_kwargs)
         # bt_test_df: generated test dataset for behavioral testing
-        # test_info: any meta information stored w.r.t the test cas6e
+        # other_info: any meta information stored w.r.t the test cas6e
 
 
     # 3. FEED TEST DATA.
@@ -113,6 +120,7 @@ if __name__ == "__main__":
         'insertion': test_perturbation,
         'deletion': test_perturbation,
         'replacement': test_perturbation,
+        'question_prior': lambda x: test_question_prior(x, item_meta=other_info, test_name=args.model),
         'original': lambda x: test_simple(x, testcol='correct')
     }
     result_df, groupby_key = test_funcs[args.test_type](bt_test_df)
