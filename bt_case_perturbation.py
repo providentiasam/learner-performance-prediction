@@ -22,9 +22,11 @@ def test_perturbation(bt_test_df, diff_threshold=0.05):
             print(incorr_prob)
             cnt += 1
         if len(corr_prob) == 1:
+            group.loc[group['is_perturbed'] == 1, 'orig_prob'] = orig_prob.item()
             if corr_prob.item() >= orig_prob.item() - diff_threshold:
                 group.loc[group['is_perturbed'] == 1, 'testpass'] = True
         if len(incorr_prob) == 1:
+            group.loc[group['is_perturbed'] == -1, 'orig_prob'] = orig_prob.item()
             if incorr_prob.item() <= orig_prob.item() + diff_threshold:
                 group.loc[group['is_perturbed'] == -1, 'testpass'] = True
         new_df_list.append(group)
