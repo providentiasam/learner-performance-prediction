@@ -4,7 +4,8 @@ import torch.nn as nn
 
 class DKT2(nn.Module):
     def __init__(
-        self, num_items, num_skills, hid_size, embed_size, num_hid_layers, drop_prob
+        self, num_items, num_skills, hid_size, embed_size, num_hid_layers, drop_prob,
+        embed_sum=True
     ):
         """Deep Knowledge Tracing (https://papers.nips.cc/paper/5654-deep-knowledge-tracing.pdf)
         with some changes inspired by
@@ -19,10 +20,12 @@ class DKT2(nn.Module):
             drop_prob (float): dropout probability
         """
         super(DKT2, self).__init__()
+        self.embed_sum = embed_sum
         self.embed_size = embed_size
-
-        self.item_embeds = nn.Embedding(num_items + 1, embed_size // 2, padding_idx=0)
-        self.skill_embeds = nn.Embedding(num_skills + 1, embed_size // 2, padding_idx=0)
+        
+        each_embed_size = self.embed_size if self.embed_sum else self.embed_size // 2
+        self.item_embeds = nn.Embedding(num_items + 1, each_embed_size, padding_idx=0)
+        self.skill_embeds = nn.Embedding(num_skills + 1, each_embed_size, padding_idx=0)
 
         self.lstm = nn.LSTM(2 * embed_size, hid_size, num_hid_layers, batch_first=True)
         self.dropout = nn.Dropout(p=drop_prob)
@@ -44,9 +47,14 @@ class DKT2(nn.Module):
         skill_inputs = self.skill_embeds(skill_inputs)
         label_inputs = label_inputs.unsqueeze(-1).float()
 
-        inputs = torch.cat(
-            [item_inputs, skill_inputs, item_inputs, skill_inputs], dim=-1
-        )
+        if self.embed_sum:
+            inputs = torch.cat(
+                [item_inputs + skill_inputs, item_inputs + skill_inputs], dim=-1
+            )
+        else:
+            inputs = torch.cat(
+                [item_inputs, skill_inputs, item_inputs, skill_inputs], dim=-1
+            )
         inputs[..., : self.embed_size] *= label_inputs
         inputs[..., self.embed_size :] *= 1 - label_inputs
         return inputs
@@ -54,5 +62,8 @@ class DKT2(nn.Module):
     def get_query(self, item_ids, skill_ids):
         item_ids = self.item_embeds(item_ids)
         skill_ids = self.skill_embeds(skill_ids)
-        query = torch.cat([item_ids, skill_ids], dim=-1)
+        if self.embed_sum:
+            query = item_ids + skill_ids
+        else:
+            query = torch.cat([item_ids, skill_ids], dim=-1)
         return query

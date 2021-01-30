@@ -117,12 +117,12 @@ class SAKT(nn.Module):
                 self.pos_key_embeds,
                 self.pos_value_embeds,
                 mask,
-            )
+            ) + query
         )
 
         for i, l in enumerate(self.attn_layers[1:]):
             residual = l(
-                outputs,
+                outputs,  # TODO: Check using query?
                 outputs,
                 outputs,
                 self.encode_pos,

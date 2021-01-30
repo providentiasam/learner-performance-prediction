@@ -11,6 +11,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from models.model_dkt1 import DKT1
 from utils import *
+from train_utils import prepare_batches
 
 
 def cuda(tensor):
@@ -73,37 +74,6 @@ def get_data(
     train_size = int(train_split * len(data))
     train_data, val_data = data[:train_size], data[train_size:]
     return train_data, val_data
-
-
-def prepare_batches(data, batch_size, randomize=True):
-    """Prepare batches grouping padded sequences.
-
-    Arguments:
-        data (list of lists of torch Tensor): output by get_data
-        batch_size (int): number of sequences per batch
-
-    Output:
-        batches (list of lists of torch Tensor)
-    """
-    if randomize:
-        shuffle(data)
-    batches = []
-
-    for k in range(0, len(data), batch_size):
-        batch = data[k : k + batch_size]
-        seq_lists = list(zip(*batch))
-        inputs_and_ids = [
-            pad_sequence(seqs, batch_first=True, padding_value=0)
-            if (seqs[0] is not None)
-            else None
-            for seqs in seq_lists[:4]
-        ]
-        labels = pad_sequence(
-            seq_lists[-1], batch_first=True, padding_value=-1
-        )  # Pad labels with -1
-        batches.append([*inputs_and_ids, labels])
-
-    return batches
 
 
 def get_preds(preds, item_ids, skill_ids, labels):
@@ -245,14 +215,14 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DKT1.")
-    parser.add_argument("--dataset", type=str, default="assistments17")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--logdir", type=str, default="runs/dkt1")
     parser.add_argument("--savedir", type=str, default="save/dkt1")
     parser.add_argument(
         "--item_in",
         action="store_true",
         help="If True, use items as inputs.",
-        default=False,
+        default=True,
     )
     parser.add_argument(
         "--skill_in",
@@ -264,13 +234,13 @@ if __name__ == "__main__":
         "--item_out",
         action="store_true",
         help="If True, use items as outputs.",
-        default=True,
+        default=False,
     )
     parser.add_argument(
         "--skill_out",
         action="store_true",
         help="If True, use skills as outputs.",
-        default=False,
+        default=True,
     )
     parser.add_argument(
         "--skill_separate",
@@ -278,12 +248,12 @@ if __name__ == "__main__":
         help="If True, train a separate model for every skill.",
         default=False,
     )
-    parser.add_argument("--hid_size", type=int, default=200)
+    parser.add_argument("--hid_size", type=int, default=64)
     parser.add_argument("--num_hid_layers", type=int, default=1)
     parser.add_argument("--drop_prob", type=float, default=0.5)
     parser.add_argument("--batch_size", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=1e-2)
-    parser.add_argument("--num_epochs", type=int, default=300)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--num_epochs", type=int, default=20)
     parser.add_argument(
         "--log_prediction",
         action="store_true",

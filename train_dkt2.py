@@ -9,93 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from models.model_dkt2 import DKT2
 from utils import *
-
-
-def get_data(df, train_split=0.8, randomize=True):
-    """Extract sequences from dataframe.
-
-    Arguments:
-        df (pandas Dataframe): output by prepare_data.py
-        train_split (float): proportion of data to use for training
-    """
-    item_ids = [
-        torch.tensor(u_df["item_id"].values, dtype=torch.long)
-        for _, u_df in df.groupby("user_id")
-    ]
-    skill_ids = [
-        torch.tensor(u_df["skill_id"].values, dtype=torch.long)
-        for _, u_df in df.groupby("user_id")
-    ]
-    labels = [
-        torch.tensor(u_df["correct"].values, dtype=torch.long)
-        for _, u_df in df.groupby("user_id")
-    ]
-
-    item_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), i))[:-1] for i in item_ids
-    ]
-    skill_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), s))[:-1] for s in skill_ids
-    ]
-    label_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), l))[:-1] for l in labels
-    ]
-
-    data = list(
-        zip(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
-    )
-    if randomize:
-        shuffle(data)
-
-    # Train-test split across users
-    train_size = int(train_split * len(data))
-    train_data, val_data = data[:train_size], data[train_size:]
-    return train_data, val_data
-
-
-def prepare_batches(data, batch_size, randomize=True):
-    """Prepare batches grouping padded sequences.
-
-    Arguments:
-        data (list of lists of torch Tensor): output by get_data
-        batch_size (int): number of sequences per batch
-
-    Output:
-        batches (list of lists of torch Tensor)
-    """
-    if randomize:
-        shuffle(data)
-    batches = []
-
-    for k in range(0, len(data), batch_size):
-        batch = data[k : k + batch_size]
-        seq_lists = list(zip(*batch))
-        inputs_and_ids = [
-            pad_sequence(seqs, batch_first=True, padding_value=0)
-            for seqs in seq_lists[:-1]
-        ]
-        labels = pad_sequence(
-            seq_lists[-1], batch_first=True, padding_value=-1
-        )  # Pad labels with -1
-        batches.append([*inputs_and_ids, labels])
-
-    return batches
-
-
-def compute_auc(preds, labels):
-    preds = preds[labels >= 0].flatten()
-    labels = labels[labels >= 0].float()
-    if len(torch.unique(labels)) == 1:  # Only one class
-        auc = accuracy_score(labels, preds.round())
-    else:
-        auc = roc_auc_score(labels, preds)
-    return auc
-
-
-def compute_loss(preds, labels, criterion):
-    preds = preds[labels >= 0].flatten()
-    labels = labels[labels >= 0].float()
-    return criterion(preds, labels)
+from train_utils import *
 
 
 def train(
@@ -182,45 +96,22 @@ def train(
             break
 
 
-def eval_batches(model, batches, device='cpu'):
-    model.eval()
-    test_preds = np.empty(0)
-    for (
-        item_inputs,
-        skill_inputs,
-        label_inputs,
-        item_ids,
-        skill_ids,
-        labels,
-    ) in batches:
-        with torch.no_grad():
-            if device == 'cuda':
-                item_inputs = item_inputs.cuda()
-                skill_inputs = skill_inputs.cuda()
-                label_inputs = label_inputs.cuda()
-                item_ids = item_ids.cuda()
-                skill_ids = skill_ids.cuda()
-            preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
-            preds = torch.sigmoid(preds[labels >= 0]).cpu().numpy()
-            test_preds = np.concatenate([test_preds, preds])
-    return test_preds
-    
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DKT.")
-    parser.add_argument("--dataset", type=str, default="ednet")
+    parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--logdir", type=str, default="runs/dkt")
     parser.add_argument("--savedir", type=str, default="save/dkt")
-    parser.add_argument("--hid_size", type=int, default=256)
-    parser.add_argument("--embed_size", type=int, default=256)
-    parser.add_argument("--num_hid_layers", type=int, default=3)
+    parser.add_argument("--hid_size", type=int, default=128)
+    parser.add_argument("--embed_size", type=int, default=64)
+    parser.add_argument("--num_hid_layers", type=int, default=1)
     parser.add_argument("--drop_prob", type=float, default=0.5)
-    parser.add_argument("--batch_size", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=1e-2)
+    parser.add_argument("--batch_size", type=int, default=200)
+    parser.add_argument("--lr", type=float, default=3e-3)
     parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2"
+    os.environ['CUDA_VISIBLE_DEVICES'] = "1,2,3"
+    
     args = parser.parse_args()
 
     set_random_seeds(args.seed)
@@ -244,7 +135,10 @@ if __name__ == "__main__":
         args.embed_size,
         args.num_hid_layers,
         args.drop_prob,
-    ).cuda()
+    )
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # model = nn.DataParallel(model)
+    # model.to(device)
     optimizer = Adam(model.parameters(), lr=args.lr)
 
     # Reduce batch size until it fits on GPU

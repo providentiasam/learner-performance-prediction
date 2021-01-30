@@ -7,7 +7,7 @@ from models.model_dkt2 import DKT2
 from models.model_sakt2 import SAKT
 
 import pickle
-from train_dkt2 import get_data, prepare_batches, eval_batches
+from train_utils import get_data, get_chunked_data, prepare_batches, eval_batches
 from train_saint import SAINT, DataModule, predict_saint
 
 from bt_case_perturbation import (
@@ -26,8 +26,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "sakt", "saint"], default="dkt")
-    parser.add_argument("--test_type", type=str, default="question_prior")
+        choices=["lr", "dkt", "sakt", "saint"], default="sakt")
+    parser.add_argument("--test_type", type=str, default="repetition")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="spanish")
     parser.add_argument("--gpu", type=str, default="0,1,2,3")
@@ -54,10 +54,9 @@ if __name__ == "__main__":
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
     )  # Original Test-split DataFrame
 
-    test_kwargs = {
-    }
+    test_kwargs = {}
 
-    if args.test_type in ['reconstruction', 'repetition', 'original']:
+    if args.test_type in ['reconstruction', 'repetition']:
         test_kwargs['item_or_skill'] = 'item'
 
     if args.test_type in ['insertion', 'deletion', 'replacement']:
@@ -83,7 +82,7 @@ if __name__ == "__main__":
         'deletion': gen_perturbation,
         'replacement': gen_perturbation,
         'question_prior': gen_question_prior,
-        'original': lambda x: x
+        'original': lambda x: (x, None)
     }
     bt_test_df, other_info = gen_funcs[args.test_type](test_df, **test_kwargs)
         # bt_test_df: generated test dataset for behavioral testing
@@ -105,7 +104,10 @@ if __name__ == "__main__":
             bt_test_df = bt_test_df.groupby('user_id').last()
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
-        bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
+        if args.model == 'sakt': 
+            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=200, train_split=1.0, stride=1)
+        else:
+            bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
         bt_test_batch = prepare_batches(bt_test_data, 10, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda')
         bt_test_df['model_pred'] = bt_test_preds

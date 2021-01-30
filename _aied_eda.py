@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     for dataset_name in os.listdir('./data/'):
         print(dataset_name)
-        if dataset_name in {'ednet', 'ednet_medium', 'assistments12'}:
+        if dataset_name in {'ednet'}:
             continue
         dataset_train = pd.read_csv('./data/{}/'.format(dataset_name) + 'preprocessed_data_train.csv', sep="\t")
         dataset_test = pd.read_csv('./data/{}/'.format(dataset_name) + 'preprocessed_data_test.csv', sep="\t")
