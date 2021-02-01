@@ -1,0 +1,1 @@
+experiment_time,train_batch,val_check_interval,lr,warmup_step,dropout_rate,layer_count,head_count,dim_model,dim_ff,seq_len,best_val_auc,best_step,test_auc
