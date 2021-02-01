@@ -9,7 +9,7 @@ do
 		do
 			for head_count in 10 5 1
 			do
-				python train_saint.py "--dataset=$2" "--train_batch=50" "--layer_count=$layer_count" "--dim_model=$dim_model" "--dim_ff=$((4*dim_model))" "--head_count=$head_count" "--num_epochs=100" "--val_check_interval=0.5" "--gpu=0" "--seq_len=$seq_len" "--limit_train_batches=1.0"
+				python train_saint.py "--dataset=$2" "--train_batch=100" "--layer_count=$layer_count" "--dim_model=$dim_model" "--dim_ff=$((4*dim_model))" "--head_count=$head_count" "--num_epochs=100" "--val_check_interval=0.5" "--gpu=0" "--seq_len=$seq_len" "--limit_train_batches=1.0"
 			done
 		done
 	done
