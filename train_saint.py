@@ -1,20 +1,23 @@
 """run with pytorch-lightning"""
+import argparse
 import copy
+from datetime import datetime
 import time
+import os
+import math
+from pprint import pprint
+
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import LambdaLR
 import pytorch_lightning as pl
-import argparse
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import dill as pkl
 import pickle
 import pandas as pd
-import math
 import wandb
-import os
 import numpy as np
 from tqdm import tqdm
-from torch.optim.lr_scheduler import LambdaLR
-from pytorch_lightning.callbacks import ModelCheckpoint
 from sklearn.metrics import roc_auc_score
 
 DEVICE = 'cuda'
@@ -229,17 +232,19 @@ class SAINT(pl.LightningModule):
         self.embed["enc_pos"] = AbsoluteDiscretePositionalEncoding(
             dim_emb=config.dim_model, max_len=config.seq_len, device=config.device
         )
-
         self.embed["dec_pos"] = copy.deepcopy(self.embed["enc_pos"])
         self.generator = nn.Linear(config.dim_model, 1)
 
         self.val_auc = 0
         self.best_val_auc = 0
+        self.best_step = -1
+        self.test_auc = 0
+
         # xavier initialization
         for param in self.parameters():
             if param.dim() > 1:
                 nn.init.xavier_uniform_(param)
-
+            
     def compute_all_losses(
         self, batch_dict,
     ):
@@ -336,12 +341,12 @@ class SAINT(pl.LightningModule):
         loss = train_res["loss"]  # (B, L)
         mask = train_batch["pad_mask"]
         loss = torch.sum(loss * mask) / torch.sum(mask)
-        if (
-            self.config.use_wandb
-            and self.global_step % self.config.val_check_steps == 0
-        ):
-            # wandb log
-            wandb.log({"Train loss": loss.item()}, step=self.global_step)
+        # if (
+        #     self.config.use_wandb
+        #     and self.global_step % self.config.val_check_steps == 0
+        # ):
+        #     # wandb log
+        #     wandb.log({"Train loss": loss.item()}, step=self.global_step)
         return {"loss": loss}
 
     def training_epoch_end(self, training_step_outputs):
@@ -384,8 +389,8 @@ class SAINT(pl.LightningModule):
             f"Val loss: {epoch_loss:.4f}, auc: {epoch_auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
         )
         if epoch_auc > self.best_val_auc:
-            # update max valid auc & epoch and save weight
             self.best_val_auc = epoch_auc
+            self.best_step = self.global_step
 
         if self.config.use_wandb:
             wandb.log(
@@ -397,7 +402,12 @@ class SAINT(pl.LightningModule):
                 step=self.global_step + 1,
             )
 
-        return {"val_auc": epoch_auc}
+        return {
+            "val_loss": epoch_loss,
+            "val_auc": epoch_auc,
+            "best_val_auc": self.best_val_auc,
+            "best_step": self.best_step,
+        }
 
     def test_step(self, test_batch, batch_idx):
         test_res = self.compute_all_losses(test_batch)
@@ -426,10 +436,59 @@ class SAINT(pl.LightningModule):
         epoch_loss = sum(losses) / len(losses)
         epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
         print(f"Test loss: {epoch_loss:.4f}, auc: {epoch_auc:.4f}")
+        self.test_auc = epoch_auc
         if self.config.use_wandb:
             wandb.log(
                 {"Test loss": epoch_loss, "Test auc": epoch_auc,}
             )
+
+        return {
+            "test_auc": epoch_auc
+        }
+        
+    def _log_final_results(self):
+        result_path = f"results/saint_{args.dataset}.csv"
+        column_names = [
+            "experiment_time",
+            "train_batch",
+            "val_check_interval",
+            "lr",
+            "warmup_step",
+            "dropout_rate",
+            "layer_count",
+            "head_count",
+            "dim_model",
+            "dim_ff",
+            "seq_len",
+            "best_val_auc",
+            "best_step",
+            "test_auc",
+        ]
+        if not os.path.exists(result_path):
+            # initialize result dataframe
+            df = pd.DataFrame(columns=column_names)
+            df.to_csv(result_path, index=False, header=True)
+
+        base_df = pd.read_csv(result_path)
+        current_time = datetime.now()
+        result_df = pd.DataFrame.from_dict([{
+            "experiment_time": current_time,
+            "train_batch": self.config.train_batch,
+            "val_check_interval": self.config.val_check_interval,
+            "lr": self.config.lr,
+            "warmup_step": self.config.warmup_step,
+            "dropout_rate": self.config.dropout_rate,
+            "layer_count": self.config.layer_count,
+            "head_count": self.config.head_count,
+            "dim_model": self.config.dim_model,
+            "dim_ff": self.config.dim_ff,
+            "seq_len": self.config.seq_len,
+            "best_val_auc": self.best_val_auc,
+            "best_step": self.best_step,
+            "test_auc": epoch_auc,
+        }])
+        base_df = base_df.append(result_df)
+        base_df.to_csv(result_path, index=False, header=True)
 
 
 def str2bool(val):
@@ -455,20 +514,28 @@ def predict_saint(saint_model, dataloader):
     return preds
 
 
+def print_args(args):
+    """Print CLI arguments in a pretty form"""
+    print("=" * 10 + " Experiment arguments " + "=" * 10)
+    for arg in vars(args):
+        print(f"{arg}:\t\t{getattr(args, arg)}")
+    print("=" * 42)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--use_wandb", type=str2bool, default=True)
+    parser.add_argument("--use_wandb", action="store_true", default=False)
     parser.add_argument("--project", type=str, default='rebenchmark')
     parser.add_argument("--name", type=str, default='saint')
-    parser.add_argument("--val_check_steps", type=int, default=50)
+    parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_steps", type=int, default=10000)
+    parser.add_argument("--num_epochs", type=int, default=10)
     parser.add_argument("--train_batch", type=int, default=64)
     parser.add_argument("--test_batch", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--eval_steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--gpu", type=str, default="0,1,2,3")
+    parser.add_argument("--gpu", type=str, default="0")
     parser.add_argument("--device", type=str, default="gpu")
     parser.add_argument("--layer_count", type=int, default=2)
     parser.add_argument("--head_count", type=int, default=8)
@@ -478,6 +545,10 @@ if __name__ == "__main__":
     parser.add_argument("--seq_len", type=int, default=150)
     parser.add_argument("--dropout_rate", type=float, default=0.2)
     parser.add_argument("--dataset", type=str, default="ednet_small")
+    # for debugging
+    parser.add_argument("--limit_train_batches", type=float, default=1.0)
+    parser.add_argument("--limit_val_batches", type=float, default=1.0)
+    parser.add_argument("--limit_test_batches", type=float, default=1.0)
     args = parser.parse_args()
 
     # parse gpus
@@ -507,29 +578,90 @@ if __name__ == "__main__":
     # set random seed
     pl.seed_everything(args.random_seed)
 
+    print_args(args)
+
     model = SAINT(args)
     datamodule = DataModule(args)
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val_auc",
-        dirpath=f"save/saint/",
-        filename=f"{args.dataset}",
+        dirpath=f"save/saint/{args.dataset}",
+        filename="{val_auc:.4f}",
+        mode="max",
+    )
+    early_stopping = EarlyStopping(
+        monitor="val_auc",
+        patience=5,
         mode="max",
     )
     trainer = pl.Trainer(
         gpus=args.gpu,
         accelerator='ddp',
-        callbacks=[checkpoint_callback],
-        max_steps=args.num_steps,
+        callbacks=[checkpoint_callback, early_stopping],
+        max_epochs=args.num_epochs,
+        val_check_interval=args.val_check_interval,
+        limit_train_batches=args.limit_train_batches,
+        limit_val_batches=args.limit_val_batches,
+        limit_test_batches=args.limit_test_batches,
     )
     # initialize wandb
     if args.use_wandb:
         wandb.init(project=args.project, name=args.name, config=args)
         print('wandb init')
     trainer.fit(model=model, datamodule=datamodule)
+
+    # validation results
+    best_val_auc = trainer.callback_metrics["best_val_auc"]
+    best_step = trainer.callback_metrics["best_step"]
+
+    # test results
     checkpoint_path = checkpoint_callback.best_model_path
     model = SAINT.load_from_checkpoint(checkpoint_path, config=args)
-
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
     trainer.test(model=model, datamodule=datamodule)
+    test_auc = trainer.callback_metrics["test_auc"]
+
+    # log results
+    result_path = f"results/saint_{args.dataset}.csv"
+    column_names = [
+        "experiment_time",
+        "train_batch",
+        "val_check_interval",
+        "lr",
+        "warmup_step",
+        "dropout_rate",
+        "layer_count",
+        "head_count",
+        "dim_model",
+        "dim_ff",
+        "seq_len",
+        "best_val_auc",
+        "best_step",
+        "test_auc",
+    ]
+    if not os.path.exists(result_path):
+        # initialize result dataframe
+        df = pd.DataFrame(columns=column_names)
+        df.to_csv(result_path, index=False, header=True)
+
+    base_df = pd.read_csv(result_path)
+    current_time = datetime.now()
+    result_df = pd.DataFrame.from_dict([{
+        "experiment_time": current_time,
+        "train_batch": args.train_batch,
+        "val_check_interval": args.val_check_interval,
+        "lr": args.lr,
+        "warmup_step": args.warmup_step,
+        "dropout_rate": args.dropout_rate,
+        "layer_count": args.layer_count,
+        "head_count": args.head_count,
+        "dim_model": args.dim_model,
+        "dim_ff": args.dim_ff,
+        "seq_len": args.seq_len,
+        "best_val_auc": best_val_auc,
+        "best_step": best_step,
+        "test_auc": test_auc,
+    }])
+    base_df = base_df.append(result_df)
+    base_df.to_csv(result_path, index=False, header=True)
