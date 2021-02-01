@@ -25,6 +25,8 @@ class SAKT(nn.Module):
         encode_pos,
         max_pos,
         drop_prob,
+        query_feed=False,
+        query_highpass=False
     ):
         """Self-attentive knowledge tracing.
 
@@ -41,6 +43,8 @@ class SAKT(nn.Module):
         super(SAKT, self).__init__()
         self.embed_size = embed_size
         self.encode_pos = encode_pos
+        self.query_feed = query_feed
+        self.query_highpass = query_highpass
 
         if 1:
             self.item_embeds = nn.Embedding(
@@ -108,21 +112,17 @@ class SAKT(nn.Module):
         #             query, inputs, inputs, self.encode_pos,
         #             self.pos_key_embeds, self.pos_value_embeds, mask)))
 
-        outputs = self.dropouts[0](
-            self.attn_layers[0](
-                query,
-                inputs,
-                inputs,
-                self.encode_pos,
-                self.pos_key_embeds,
-                self.pos_value_embeds,
-                mask,
-            ) + query
-        )
+        attn_output = self.attn_layers[0](
+            query, inputs, inputs, self.encode_pos, 
+            self.pos_key_embeds, self.pos_value_embeds, mask,
+            )
+        if self.query_feed:
+            attn_output = attn_output + query
+        outputs = self.dropouts[0](attn_output)
 
         for i, l in enumerate(self.attn_layers[1:]):
             residual = l(
-                outputs,  # TODO: Check using query?
+                outputs if not self.query_highpass else query,
                 outputs,
                 outputs,
                 self.encode_pos,
