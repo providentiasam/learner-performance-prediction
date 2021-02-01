@@ -23,7 +23,7 @@ class Saver:
         self.counter = 0
         self.best_epoch = -1
 
-    def save(self, score, network, epoch=None):
+    def save(self, score, network, epoch=None, other_info=None):
         """
         Arguments:
             score (float): Score to maximize.
@@ -36,6 +36,8 @@ class Saver:
             self.score_max = score
             if epoch is not None:
                 self.best_epoch = epoch
+            if other_info is not None:
+                self.other_info = other_info
             torch.save(network, self.path)
             self.counter = 0
 

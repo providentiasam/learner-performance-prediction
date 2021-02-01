@@ -26,13 +26,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "sakt", "saint"], default="sakt")
-    parser.add_argument("--test_type", type=str, default="repetition")
+        choices=["lr", "dkt", "sakt", "saint"], default="saint")
+    parser.add_argument("--test_type", type=str, default="reconstruction")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="spanish")
-    parser.add_argument("--gpu", type=str, default="0,1,2,3")
+    parser.add_argument("--filename", type=str,\
+         default="spanish")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0.05)
     args = parser.parse_args()
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # 1. LOAD DATA + PRE-TRAINED MODEL - {SAINT, DKT, BESTLR, SAKT}
@@ -45,14 +47,15 @@ if __name__ == "__main__":
             ).to(torch.device("cuda"))
         model.eval()
     else:
-        saver = Saver(args.load_dir + f'/{args.model}/', args.filename)
+        print(args.load_dir + f'/{args.model}/{args.dataset}/{args.filename}')
+        saver = Saver(args.load_dir + f'/{args.model}/{args.dataset}/{args.filename}')
         model = saver.load().to(torch.device("cuda"))
         model.eval()
         model_config = argparse.Namespace(**{})
 
     test_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
-    )  # Original Test-split DataFrame
+    ) # Original Test-split DataFrame
 
     test_kwargs = {}
 
@@ -105,10 +108,11 @@ if __name__ == "__main__":
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
         if args.model == 'sakt': 
-            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=200, train_split=1.0, stride=1)
+            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=200, \
+                train_split=1.0, stride=10)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
-        bt_test_batch = prepare_batches(bt_test_data, 10, False)
+        bt_test_batch = prepare_batches(bt_test_data, 100, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda')
         bt_test_df['model_pred'] = bt_test_preds
         if last_one_only:
