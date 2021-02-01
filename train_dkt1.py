@@ -311,11 +311,10 @@ if __name__ == "__main__":
             param_str = (
                 f"{args.dataset},"
                 f"batch_size={args.batch_size},"
-                f"item_in={args.item_in},"
-                f"skill_in={args.skill_in},"
-                f"item_out={args.item_out},"
-                f"skill_out={args.skill_out}"
-                f"skill_separate={args.skill_separate}"
+                f"hid_size={args.hid_size},"
+                f"num_hid_layers={args.num_hid_layers},"
+                f"drop_prob={args.drop_prob},"
+                f"lr={args.lr}"
             )
             logger = Logger(os.path.join(args.logdir, param_str))
             saver = Saver(args.savedir, param_str)

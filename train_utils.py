@@ -5,6 +5,17 @@ from torch.nn.utils.rnn import pad_sequence
 from sklearn.metrics import roc_auc_score, accuracy_score
 
 
+def get_preds(preds, item_ids, skill_ids, labels):
+    preds = preds[labels >= 0]
+
+    # if item_ids is not None:
+    #     item_ids = item_ids[labels >= 0]
+    #     preds = preds[torch.arange(preds.size(0)), item_ids]
+    # elif skill_ids is not None:
+    #     skill_ids = skill_ids[labels >= 0]
+    #     preds = preds[torch.arange(preds.size(0)), skill_ids]
+
+    return preds
 
 
 def window_split(x, window_size=100, stride=50, return_nonoverlap=False):
@@ -24,7 +35,6 @@ def window_split(x, window_size=100, stride=50, return_nonoverlap=False):
         return non_overlap_from
     else:
         return splits
-
 
 
 def get_data(df, train_split=0.8, randomize=True):
@@ -112,7 +122,7 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
     chunked_lists = [chunk(l, stride) for l in lists]
     if non_overlap_only:
         non_overlap_from = [y for x in labels for y in \
-            window_split(x, window_size=max_length, stride=stride, return_nonoverlap=True)]
+                            window_split(x, window_size=max_length, stride=stride, return_nonoverlap=True)]
         # chunked_lists.append([y for x in item_inputs for y in window_split(x, max_length, stride)[1]])
         non_overlap_labels = []
         for org_label, index_begin in zip(chunked_lists[5], non_overlap_from):
@@ -145,7 +155,7 @@ def prepare_batches(data, batch_size, randomize=True):
     batches = []
 
     for k in range(0, len(data), batch_size):
-        batch = data[k : k + batch_size]
+        batch = data[k: k + batch_size]
         seq_lists = list(zip(*batch))
         inputs_and_ids = [
             pad_sequence(seqs, batch_first=True, padding_value=0)
@@ -177,16 +187,16 @@ def compute_loss(preds, labels, criterion):
     return criterion(preds, labels)
 
 
-def eval_batches(model, batches, device='cpu'):
+def eval_batches(model, batches, device='cpu', is_dkt1=False):
     model.eval()
     test_preds = np.empty(0)
     for (
-        item_inputs,
-        skill_inputs,
-        label_inputs,
-        item_ids,
-        skill_ids,
-        labels,
+            item_inputs,
+            skill_inputs,
+            label_inputs,
+            item_ids,
+            skill_ids,
+            labels,
     ) in batches:
         with torch.no_grad():
             if device == 'cuda':
@@ -195,8 +205,14 @@ def eval_batches(model, batches, device='cpu'):
                 label_inputs = label_inputs.cuda()
                 item_ids = item_ids.cuda()
                 skill_ids = skill_ids.cuda()
-            preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
-            preds = torch.sigmoid(preds[labels >= 0]).flatten().cpu().numpy()
+                labels = labels.cuda()
+            if is_dkt1:
+                preds, _ = model(item_inputs, skill_inputs)
+                preds = torch.sigmoid(
+                    get_preds(preds, item_ids, skill_ids, labels)
+                ).cpu().numpy()
+            else:
+                preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
+                preds = torch.sigmoid(preds[labels >= 0]).flatten().cpu().numpy()
             test_preds = np.concatenate([test_preds, preds])
     return test_preds
-    

@@ -73,11 +73,11 @@ class InteractionDataset(torch.utils.data.Dataset):
         features["infer_mask"] = [(x and y) for (x, y) in zip(infer_mask, pad_mask)]
 
         return {
-            "qid": torch.LongTensor(features["qid"]).to(DEVICE),
-            "skill": torch.LongTensor(features["skill"]).to(DEVICE),
-            "is_correct": torch.LongTensor(features["is_correct"]).to(DEVICE),
-            "pad_mask": torch.BoolTensor(features["pad_mask"]).to(DEVICE),
-            "infer_mask": torch.BoolTensor(features["infer_mask"]).to(DEVICE),
+            "qid": torch.LongTensor(features["qid"]),
+            "skill": torch.LongTensor(features["skill"]),
+            "is_correct": torch.LongTensor(features["is_correct"]),
+            "pad_mask": torch.BoolTensor(features["pad_mask"]),
+            "infer_mask": torch.BoolTensor(features["infer_mask"]),
         }
 
 

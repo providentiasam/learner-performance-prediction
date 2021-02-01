@@ -26,7 +26,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "sakt", "saint"], default="sakt")
+        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
     parser.add_argument("--test_type", type=str, default="repetition")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="spanish")
@@ -109,7 +109,7 @@ if __name__ == "__main__":
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
         bt_test_batch = prepare_batches(bt_test_data, 10, False)
-        bt_test_preds = eval_batches(model, bt_test_batch, 'cuda')
+        bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', args.model == 'dkt1')
         bt_test_df['model_pred'] = bt_test_preds
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
