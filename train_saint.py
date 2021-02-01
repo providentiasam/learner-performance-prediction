@@ -514,6 +514,14 @@ def predict_saint(saint_model, dataloader):
     return preds
 
 
+def print_args(args):
+    """Print CLI arguments in a pretty form"""
+    print("=" * 10 + " Experiment arguments " + "=" * 10)
+    for arg in vars(args):
+        print(f"{arg}:\t\t{getattr(args, arg)}")
+    print("=" * 42)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=False)
@@ -569,6 +577,8 @@ if __name__ == "__main__":
         args.num_skill = int(full_df["skill_id"].max() + 1)
     # set random seed
     pl.seed_everything(args.random_seed)
+
+    print_args(args)
 
     model = SAINT(args)
     datamodule = DataModule(args)
