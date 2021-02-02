@@ -51,8 +51,8 @@ python prepare_data.py --dataset <dataset codename> --remove_nan_skills
 #### Logistic Regression
 
 To encode a sparse feature matrix with specified features:
-- Item Response Theory (IRT): `-i` 
-- PFA: `-s -sc -w -a` 
+- Item Response Theory (IRT): `-i`
+- PFA: `-s -sc -w -a`
 - DAS3H: `-i -s -sc -w -a -tw`
 - Best logistic regression features (Best-LR): `-i -s -ic -sc -tc -w -a`
 
@@ -71,7 +71,7 @@ python train_lr.py --X_file data/<dataset codename>/X-<feature suffix>.npz --dat
 To train a DKT model:
 
 ```
-python train_dkt2.py --dataset <dataset codename> 
+python train_dkt2.py --dataset <dataset codename>
 ```
 
 #### Self-Attentive Knowledge Tracing
@@ -86,9 +86,28 @@ python train_sakt.py --dataset <dataset codename>
 
 | Algorithm      | assist09      | assist12 | assist15      | assist17 | bridge06 | algebra05 | spanish  | statics  |
 | -------------- | ------------- | -------- | ------------- | -------- | -------- | --------- | -------- | -------- |
-| IRT            | 0.69          | 0.71     | 0.64          | 0.68     | 0.75     | 0.77      | 0.68     | 0.79     |       
+| IRT            | 0.69          | 0.71     | 0.64          | 0.68     | 0.75     | 0.77      | 0.68     | 0.79     |
 | PFA            | 0.72          | 0.67     | 0.69          | 0.62     | 0.77     | 0.76      | 0.85     | 0.69     |
 | DAS3H          | -             | 0.74     | -             | 0.69     | 0.79     | **0.83**  | -        | -        |
 | Best-LR        | **0.77**      | 0.75     | 0.70          | 0.71     | **0.80** | **0.83**  | **0.86** | 0.82     |
 | DKT            | 0.75          | **0.77** | **0.73**      | **0.77** | 0.79     | 0.82      | 0.83     | **0.83** |
 | SAKT           | 0.75          | 0.73     | **0.73**      | 0.72     | 0.78     | 0.80      | 0.83     | 0.81     |
+| SAINT          | 0.73          | **0.77** | 0.00          | 0.00     | 0.00     | 0.00      | 0.00     | 0.00     |
+
+## Behavioral Testing of models
+
+Sample behavioral test is in `behavior_test.py`. To test a model:
+
+```
+python behavior_test.py --dataset <dataset codename> --load_dir <load_directory> --filename <filename>
+```
+
+This sample code examines first 1000 test data. For each input data, we change all responses to 1(correct) and check if the predicted correctness probability increases. Similarly, we change all responses to 0(incorrect) and check if the predicted correctness probability decreases.
+
+### Results
+
+| Algorithm      | assist09     | assist12     | assist15     | assist17     | bridge06     | algebra05    | spanish      | statics      | ednet_small  |
+| -------------- | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ | ------------ |
+| Best-LR        |              |              |              |              |              |              |              |              |              |
+| DKT            | 10.3% / 0.6% | 1.3% / 0.1%  | 4.0% / 0.2%  | 5.3% / 35.1% | 5.8% / 4.0%  | 2.6% / 0.9%  | 2.7% / 0.0%  | 5.3% / 0.0%  | 0.2% / 0.1%  |
+| SAINT          | 27.2% / 6.9% | 8.6% / 2.4%  | 7.2% / 2.1%  | 2.7% / 17.7% | 6.4% / 4.3%  |              |              |              | 6.0% / 4.2%  |

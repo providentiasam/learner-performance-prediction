@@ -1,3 +1,7 @@
 __pycache__
 runs
 save
+.idea
+lightning_logs
+Pipfile.lock
+.vscode

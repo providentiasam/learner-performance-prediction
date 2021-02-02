@@ -1,4 +1,6 @@
 import argparse
+from datetime import datetime
+
 import pandas as pd
 from random import shuffle
 from sklearn.metrics import roc_auc_score, accuracy_score
@@ -9,13 +11,23 @@ from torch.nn.utils.rnn import pad_sequence
 
 from models.model_dkt1 import DKT1
 from utils import *
+from train_utils import prepare_batches
 
 
 def cuda(tensor):
     return tensor.cuda() if tensor is not None else None
 
 
-def get_data(df, item_in, skill_in, item_out, skill_out, skill_separate, train_split=0.8, randomize=True):
+def get_data(
+    df,
+    item_in,
+    skill_in,
+    item_out,
+    skill_out,
+    skill_separate,
+    train_split=0.8,
+    randomize=True,
+):
     """Extract sequences from dataframe.
 
     Arguments:
@@ -27,17 +39,27 @@ def get_data(df, item_in, skill_in, item_out, skill_out, skill_separate, train_s
         train_split (float): proportion of data to use for training
     """
     idx = ["user_id", "skill_id"] if skill_separate else "user_id"
-    item_ids = [torch.tensor(u_df["item_id"].values, dtype=torch.long)
-                for _, u_df in df.groupby(idx)]
-    skill_ids = [torch.tensor(u_df["skill_id"].values, dtype=torch.long)
-                 for _, u_df in df.groupby(idx)]
-    labels = [torch.tensor(u_df["correct"].values, dtype=torch.long)
-              for _, u_df in df.groupby(idx)]
+    item_ids = [
+        torch.tensor(u_df["item_id"].values, dtype=torch.long)
+        for _, u_df in df.groupby(idx)
+    ]
+    skill_ids = [
+        torch.tensor(u_df["skill_id"].values, dtype=torch.long)
+        for _, u_df in df.groupby(idx)
+    ]
+    labels = [
+        torch.tensor(u_df["correct"].values, dtype=torch.long)
+        for _, u_df in df.groupby(idx)
+    ]
 
-    item_inputs = [torch.cat((torch.zeros(1, dtype=torch.long), i * 2 + l + 1))[:-1]
-                   for (i, l) in zip(item_ids, labels)]
-    skill_inputs = [torch.cat((torch.zeros(1, dtype=torch.long), s * 2 + l + 1))[:-1]
-                    for (s, l) in zip(skill_ids, labels)]
+    item_inputs = [
+        torch.cat((torch.zeros(1, dtype=torch.long), i * 2 + l + 1))[:-1]
+        for (i, l) in zip(item_ids, labels)
+    ]
+    skill_inputs = [
+        torch.cat((torch.zeros(1, dtype=torch.long), s * 2 + l + 1))[:-1]
+        for (s, l) in zip(skill_ids, labels)
+    ]
 
     item_inputs = item_inputs if item_in else [None] * len(item_inputs)
     skill_inputs = skill_inputs if skill_in else [None] * len(skill_inputs)
@@ -54,38 +76,13 @@ def get_data(df, item_in, skill_in, item_out, skill_out, skill_separate, train_s
     return train_data, val_data
 
 
-def prepare_batches(data, batch_size, randomize=True):
-    """Prepare batches grouping padded sequences.
-
-    Arguments:
-        data (list of lists of torch Tensor): output by get_data
-        batch_size (int): number of sequences per batch
-
-    Output:
-        batches (list of lists of torch Tensor)
-    """
-    if randomize:
-        shuffle(data)
-    batches = []
-
-    for k in range(0, len(data), batch_size):
-        batch = data[k:k + batch_size]
-        seq_lists = list(zip(*batch))
-        inputs_and_ids = [pad_sequence(seqs, batch_first=True, padding_value=0)
-                          if (seqs[0] is not None) else None for seqs in seq_lists[:4]]
-        labels = pad_sequence(seq_lists[-1], batch_first=True, padding_value=-1)  # Pad labels with -1
-        batches.append([*inputs_and_ids, labels])
-
-    return batches
-
-
 def get_preds(preds, item_ids, skill_ids, labels):
     preds = preds[labels >= 0]
 
-    if (item_ids is not None):
+    if item_ids is not None:
         item_ids = item_ids[labels >= 0]
         preds = preds[torch.arange(preds.size(0)), item_ids]
-    elif (skill_ids is not None):
+    elif skill_ids is not None:
         skill_ids = skill_ids[labels >= 0]
         preds = preds[torch.arange(preds.size(0)), skill_ids]
 
@@ -110,7 +107,17 @@ def compute_loss(preds, item_ids, skill_ids, labels, criterion):
     return criterion(preds, labels)
 
 
-def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, batch_size, bptt=50):
+def train(
+    train_data,
+    val_data,
+    model,
+    optimizer,
+    logger,
+    saver,
+    num_epochs,
+    batch_size,
+    bptt=50,
+):
     """Train DKT model.
     
     Arguments:
@@ -128,7 +135,7 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
     criterion = nn.BCEWithLogitsLoss()
     metrics = Metrics()
     step = 0
-    
+
     for epoch in range(num_epochs):
         train_batches = prepare_batches(train_data, batch_size)
         val_batches = prepare_batches(val_data, batch_size)
@@ -143,33 +150,39 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
             # Truncated backprop through time
             for i in range(0, length, bptt):
-                item_inp = item_inputs[:, i:i + bptt] if item_inputs is not None else None
-                skill_inp = skill_inputs[:, i:i + bptt] if skill_inputs is not None else None
+                item_inp = (
+                    item_inputs[:, i : i + bptt] if item_inputs is not None else None
+                )
+                skill_inp = (
+                    skill_inputs[:, i : i + bptt] if skill_inputs is not None else None
+                )
                 if i == 0:
                     pred, hidden = model(item_inp, skill_inp)
                 else:
                     hidden = model.repackage_hidden(hidden)
                     pred, hidden = model(item_inp, skill_inp, hidden)
-                preds[:, i:i + bptt] = pred
+                preds[:, i : i + bptt] = pred
 
             loss = compute_loss(preds, item_ids, skill_ids, labels.cuda(), criterion)
-            train_auc = compute_auc(torch.sigmoid(preds).detach().cpu(), item_ids, skill_ids, labels)
+            train_auc = compute_auc(
+                torch.sigmoid(preds).detach().cpu(), item_ids, skill_ids, labels
+            )
 
             model.zero_grad()
             loss.backward()
             optimizer.step()
             step += 1
-            metrics.store({'loss/train': loss.item()})
-            metrics.store({'auc/train': train_auc})
+            metrics.store({"loss/train": loss.item()})
+            metrics.store({"auc/train": train_auc})
 
             # Logging
             if step % 20 == 0:
                 logger.log_scalars(metrics.average(), step)
-                #weights = {"weight/" + name: param for name, param in model.named_parameters()}
-                #grads = {"grad/" + name: param.grad
+                # weights = {"weight/" + name: param for name, param in model.named_parameters()}
+                # grads = {"grad/" + name: param.grad
                 #         for name, param in model.named_parameters() if param.grad is not None}
-                #logger.log_histograms(weights, step)
-                #logger.log_histograms(grads, step)
+                # logger.log_histograms(weights, step)
+                # logger.log_histograms(grads, step)
 
         # Validation
         model.eval()
@@ -178,84 +191,164 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
                 item_inputs = cuda(item_inputs)
                 skill_inputs = cuda(skill_inputs)
                 preds, _ = model(item_inputs, skill_inputs)
-            val_auc = compute_auc(torch.sigmoid(preds).cpu(), item_ids, skill_ids, labels)
-            metrics.store({'auc/val': val_auc})
+            val_auc = compute_auc(
+                torch.sigmoid(preds).cpu(), item_ids, skill_ids, labels
+            )
+            metrics.store({"auc/val": val_auc})
         model.train()
 
         # Save model
         average_metrics = metrics.average()
         logger.log_scalars(average_metrics, step)
-        stop = saver.save(average_metrics['auc/val'], model)
+        stop = saver.save(average_metrics["auc/val"], model, epoch)
         if stop:
             break
 
 
+def print_args(args):
+    """Print CLI arguments in a pretty form"""
+    print("=" * 10 + " Experiment arguments " + "=" * 10)
+    for arg in vars(args):
+        print(f"{arg}:\t\t{getattr(args, arg)}")
+    print("=" * 42)
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train DKT1.')
-    parser.add_argument('--dataset', type=str, default='assistments17')
-    parser.add_argument('--logdir', type=str, default='runs/dkt1')
-    parser.add_argument('--savedir', type=str, default='save/dkt1')
-    parser.add_argument('--item_in', action='store_true',
-                        help='If True, use items as inputs.', default=False)
-    parser.add_argument('--skill_in', action='store_true',
-                        help='If True, use skills as inputs.', default=True)
-    parser.add_argument('--item_out', action='store_true',
-                        help='If True, use items as outputs.', default=True)
-    parser.add_argument('--skill_out', action='store_true',
-                        help='If True, use skills as outputs.', default=False)
-    parser.add_argument('--skill_separate', action='store_true',
-                        help='If True, train a separate model for every skill.',
-                        default=False)
-    parser.add_argument('--hid_size', type=int, default=200)
-    parser.add_argument('--num_hid_layers', type=int, default=1)
-    parser.add_argument('--drop_prob', type=float, default=0.5)
-    parser.add_argument('--batch_size', type=int, default=100)
-    parser.add_argument('--lr', type=float, default=1e-2)
-    parser.add_argument('--num_epochs', type=int, default=300)
+    parser = argparse.ArgumentParser(description="Train DKT1.")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--logdir", type=str, default="runs/dkt1")
+    parser.add_argument("--savedir", type=str, default="save/dkt1")
+    parser.add_argument(
+        "--item_in",
+        action="store_true",
+        help="If True, use items as inputs.",
+        default=True,
+    )
+    parser.add_argument(
+        "--skill_in",
+        action="store_true",
+        help="If True, use skills as inputs.",
+        default=True,
+    )
+    parser.add_argument(
+        "--item_out",
+        action="store_true",
+        help="If True, use items as outputs.",
+        default=False,
+    )
+    parser.add_argument(
+        "--skill_out",
+        action="store_true",
+        help="If True, use skills as outputs.",
+        default=True,
+    )
+    parser.add_argument(
+        "--skill_separate",
+        action="store_true",
+        help="If True, train a separate model for every skill.",
+        default=False,
+    )
+    parser.add_argument("--hid_size", type=int, default=64)
+    parser.add_argument("--num_hid_layers", type=int, default=1)
+    parser.add_argument("--drop_prob", type=float, default=0.5)
+    parser.add_argument("--batch_size", type=int, default=100)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--num_epochs", type=int, default=20)
+    parser.add_argument(
+        "--log_prediction",
+        action="store_true",
+        help="If True, log the predictions of the model as an additional"
+             "column on `preprocessed_data_test.csv`",
+        default=False
+    )
     args = parser.parse_args()
 
-    assert (args.item_in or args.skill_in)    # Use at least one of skills or items as input
-    assert (args.item_out != args.skill_out)  # Use exactly one of skills or items as output
+    assert args.item_in or args.skill_in  # Use at least one of skills or items as input
+    assert (
+        args.item_out != args.skill_out
+    )  # Use exactly one of skills or items as output
 
-    full_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data.csv'), sep="\t")
-    train_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data_train.csv'), sep="\t")
-    test_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data_test.csv'), sep="\t")
+    full_df = pd.read_csv(
+        os.path.join("data", args.dataset, "preprocessed_data.csv"), sep="\t"
+    )
+    train_df = pd.read_csv(
+        os.path.join("data", args.dataset, "preprocessed_data_train.csv"), sep="\t"
+    )
+    test_df = pd.read_csv(
+        os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
+    )
 
-    train_data, val_data = get_data(train_df, args.item_in, args.skill_in, args.item_out,
-                                    args.skill_out, args.skill_separate)
+    train_data, val_data = get_data(
+        train_df,
+        args.item_in,
+        args.skill_in,
+        args.item_out,
+        args.skill_out,
+        args.skill_separate,
+    )
 
     num_items = int(full_df["item_id"].max() + 1) + 1
     num_skills = int(full_df["skill_id"].max() + 1) + 1
 
-    model = DKT1(num_items, num_skills, args.hid_size, args.num_hid_layers, args.drop_prob,
-                 args.item_in, args.skill_in, args.item_out, args.skill_out).cuda()
+    model = DKT1(
+        num_items,
+        num_skills,
+        args.hid_size,
+        args.num_hid_layers,
+        args.drop_prob,
+        args.item_in,
+        args.skill_in,
+        args.item_out,
+        args.skill_out,
+    ).cuda()
     optimizer = Adam(model.parameters(), lr=args.lr)
 
+    print_args(args)
     # Reduce batch size until it fits on GPU
     while True:
         try:
             # Train
-            param_str = (f'{args.dataset},'
-                         f'batch_size={args.batch_size},'
-                         f'item_in={args.item_in},'
-                         f'skill_in={args.skill_in},'
-                         f'item_out={args.item_out},'
-                         f'skill_out={args.skill_out}'
-                         f'skill_separate={args.skill_separate}')
+            param_str = (
+                f"{args.dataset},"
+                f"batch_size={args.batch_size},"
+                f"hid_size={args.hid_size},"
+                f"num_hid_layers={args.num_hid_layers},"
+                f"drop_prob={args.drop_prob},"
+                f"lr={args.lr}"
+            )
             logger = Logger(os.path.join(args.logdir, param_str))
             saver = Saver(args.savedir, param_str)
-            train(train_data, val_data, model, optimizer, logger, saver, args.num_epochs, args.batch_size)
+            train(
+                train_data,
+                val_data,
+                model,
+                optimizer,
+                logger,
+                saver,
+                args.num_epochs,
+                args.batch_size,
+            )
             break
         except RuntimeError:
             args.batch_size = args.batch_size // 2
-            print(f'Batch does not fit on gpu, reducing size to {args.batch_size}')
+            print(f"Batch does not fit on gpu, reducing size to {args.batch_size}")
 
     logger.close()
+    best_val_auc = saver.score_max
+    best_epoch = saver.best_epoch
+    print(f"best auc_val = {best_val_auc}")
 
     model = saver.load()
-    test_data, _ = get_data(test_df, args.item_in, args.skill_in, args.item_out,
-                            args.skill_out, args.skill_separate, train_split=1.0,
-                            randomize=False)
+    test_data, _ = get_data(
+        test_df,
+        args.item_in,
+        args.skill_in,
+        args.item_out,
+        args.skill_out,
+        args.skill_separate,
+        train_split=1.0,
+        randomize=False,
+    )
     test_batches = prepare_batches(test_data, args.batch_size, randomize=False)
     test_preds = np.empty(0)
 
@@ -266,12 +359,61 @@ if __name__ == "__main__":
             item_inputs = cuda(item_inputs)
             skill_inputs = cuda(skill_inputs)
             preds, _ = model(item_inputs, skill_inputs)
-            preds = torch.sigmoid(get_preds(preds, item_ids, skill_ids, labels)).cpu().numpy()
+            preds = (
+                torch.sigmoid(get_preds(preds, item_ids, skill_ids, labels))
+                .cpu()
+                .numpy()
+            )
             test_preds = np.concatenate([test_preds, preds])
 
     # Write predictions to csv
-    test_df["DKT1"] = test_preds
-    test_df.to_csv(f'data/{args.dataset}/preprocessed_data_test.csv', sep="\t", index=False)
+    if args.log_prediction:
+        test_df["DKT1"] = test_preds
+        test_df.to_csv(
+            f"data/{args.dataset}/preprocessed_data_test.csv", sep="\t", index=False
+        )
 
-    print("auc_test = ", roc_auc_score(test_df["correct"], test_preds))
+    test_auc = roc_auc_score(test_df["correct"], test_preds)
+    print("auc_test = ", test_auc)
 
+    # log the experiment results with configs
+    result_path = f"results/dkt1_{args.dataset}.csv"
+    column_names = [
+        "experiment_time",
+        "hid_size",
+        "num_hid_layers",
+        "item_in",
+        "skill_in",
+        "item_out",
+        "skill_out",
+        "drop_prob",
+        "batch_size",
+        "lr",
+        "best_val_auc",
+        "best_epoch",
+        "test_auc",
+    ]
+    if not os.path.exists(result_path):
+        # initialize result dataframe
+        df = pd.DataFrame(columns=column_names)
+        df.to_csv(result_path, index=False, header=True)
+
+    base_df = pd.read_csv(result_path)
+    current_time = datetime.now()
+    result_df = pd.DataFrame.from_dict([{
+        "experiment_time": current_time,
+        "hid_size": args.hid_size,
+        "num_hid_layers": args.num_hid_layers,
+        "item_in": args.item_in,
+        "skill_in": args.skill_in,
+        "item_out": args.item_out,
+        "skill_out": args.skill_out,
+        "drop_prob": args.drop_prob,
+        "batch_size": args.batch_size,
+        "lr": args.lr,
+        "best_val_auc": best_val_auc,
+        "best_epoch": best_epoch,
+        "test_auc": test_auc,
+    }])
+    base_df = base_df.append(result_df)
+    base_df.to_csv(result_path, index=False, header=True)
