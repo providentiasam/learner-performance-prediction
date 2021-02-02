@@ -48,7 +48,7 @@ if __name__ == "__main__":
         model.eval()
     else:
         print(args.load_dir + f'/{args.model}/{args.dataset}/{args.filename}')
-        saver = Saver(args.load_dir + f'/{args.model}/{args.dataset}/{args.filename}')
+        saver = Saver(args.load_dir + f'/{args.model}/{args.dataset}/', args.filename)
         model = saver.load().to(torch.device("cuda"))
         model.eval()
         model_config = argparse.Namespace(**{})
@@ -112,8 +112,9 @@ if __name__ == "__main__":
                 train_split=1.0, stride=10)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
-        bt_test_batch = prepare_batches(bt_test_data, 100, False)
+        bt_test_batch = prepare_batches(bt_test_data, 1, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', args.model == 'dkt1')
+        print(len(bt_test_df))
         bt_test_df['model_pred'] = bt_test_preds
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
