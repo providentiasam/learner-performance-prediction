@@ -32,7 +32,7 @@ def test_perturbation(bt_test_df, diff_threshold=0.05):
         new_df_list.append(group)
 
     result_df = pd.concat(new_df_list, axis=0).reset_index(drop=True)
-    result_df = result_df.loc[result_df['is_perturbed'] != 0]
+    result_df = result_df.loc[result_df['is_perturbed'] != 0].reset_index(drop=True)
     groupby_key = ['all', 'is_perturbed']
     return result_df, groupby_key
 
@@ -126,9 +126,10 @@ def perturb_insertion_random(orig_df, insert_policy=None):
     return pd.concat(new_df_list, axis=0).reset_index(drop=True)
 
 
-def perturb_delete(orig_df, row_index):
+def perturb_delete(orig_df, row_index, perturb_change=True):
     new_df = deepcopy(orig_df)
-    new_df.loc[row_index:, 'is_perturbed'] = 1 if (new_df.iloc[row_index]['correct'] == 1) else -1
+    if perturb_change:
+        new_df.loc[row_index:, 'is_perturbed'] = -1 if (new_df.iloc[row_index]['correct'] == 1) else 1
     new_df = new_df.iloc[:row_index].append(new_df.iloc[row_index+1:]).reset_index(drop=True)
     return new_df
 
@@ -152,9 +153,9 @@ def perturb_delete_random(orig_df, insert_policy=None):
 
 
 def perturb_replace(orig_df, copy_idx, insert_idx, corr_value):
-    new_df = perturb_insertion(orig_df, copy_idx, insert_idx, corr_value)
-    del_df = perturb_delete(new_df, insert_idx+1)
-    return del_df
+    del_df = perturb_delete(orig_df, insert_idx)
+    new_df = perturb_insertion(del_df, copy_idx, insert_idx, corr_value)
+    return new_df
 
 
 def perturb_replace_random(orig_df, insert_policy=None):
@@ -170,14 +171,17 @@ def perturb_replace_random(orig_df, insert_policy=None):
         insert_idx = len(orig_df) - 1
     else:
         insert_idx = random.randrange(0, len(orig_df))
-    corr_df = perturb_replace(orig_df, copy_idx, insert_idx, 1)
-    corr_df.loc[:, 'user_id'] = corr_df['user_id'].astype(str) + "_corr"
-    corr_df.loc[insert_idx+1:, 'is_perturbed'] = 1
-    incorr_df = perturb_replace(orig_df, copy_idx, insert_idx, 0)
-    incorr_df.loc[:, 'user_id'] = incorr_df['user_id'].astype(str) + "_incorr"
-    incorr_df.loc[insert_idx+1:, 'is_perturbed'] = -1
+    corr = (orig_df.iloc[insert_idx]['correct'] == 0)
+    if corr:
+        new_df = perturb_replace(orig_df, copy_idx, insert_idx, 1)
+        new_df.loc[:, 'user_id'] = new_df['user_id'].astype(str) + "_corr"
+        new_df.loc[insert_idx + 1:, 'is_perturbed'] = 1
+    else:
+        new_df = perturb_replace(orig_df, copy_idx, insert_idx, 0)
+        new_df.loc[:, 'user_id'] = new_df['user_id'].astype(str) + "_incorr"
+        new_df.loc[insert_idx + 1:, 'is_perturbed'] = -1
 
-    new_df_list = [orig_df, corr_df, incorr_df]
+    new_df_list = [orig_df, new_df]
     return pd.concat(new_df_list, axis=0).reset_index(drop=True)
 
 # depercated templates
