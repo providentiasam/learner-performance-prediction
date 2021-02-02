@@ -280,7 +280,7 @@ class SAINT(pl.LightningModule):
         shifted_correct = torch.cat(
             [
                 torch.zeros([batch_dict["is_correct"].size(0), 1]).long().to(device),
-                batch_dict["is_correct"][:, :-1],
+                batch_dict["is_correct"][:, :-1].to(device),
             ],
             -1,
         )
