@@ -545,6 +545,7 @@ if __name__ == "__main__":
     parser.add_argument("--seq_len", type=int, default=150)
     parser.add_argument("--dropout_rate", type=float, default=0.2)
     parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--patience", type=int, default=30)
     # for debugging
     parser.add_argument("--limit_train_batches", type=float, default=1.0)
     parser.add_argument("--limit_val_batches", type=float, default=1.0)
@@ -591,7 +592,7 @@ if __name__ == "__main__":
     )
     early_stopping = EarlyStopping(
         monitor="val_auc",
-        patience=5,
+        patience=args.patience,
         mode="max",
     )
     trainer = pl.Trainer(
