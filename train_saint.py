@@ -269,9 +269,9 @@ class SAINT(pl.LightningModule):
         device = self.config.device
         timestamp = torch.arange(1, self.config.seq_len + 1).to(device)
 
-        obs_mask = batch_dict["pad_mask"]  # padding mask
-        src = self.embed["qid"](batch_dict["qid"])
-        src += self.embed["skill"](batch_dict["skill"].squeeze(-1))
+        obs_mask = batch_dict["pad_mask"].to(device)  # padding mask
+        src = self.embed["qid"](batch_dict["qid"].to(device))
+        src += self.embed["skill"](batch_dict["skill"].squeeze(-1).to(device))
         # src += self.embed['part'](batch_dict['part'])
         # positional encoding
         enc_pos = self.embed["enc_pos"](timestamp).squeeze(0)  # (L_T, D)
@@ -280,7 +280,7 @@ class SAINT(pl.LightningModule):
         shifted_correct = torch.cat(
             [
                 torch.zeros([batch_dict["is_correct"].size(0), 1]).long().to(device),
-                batch_dict["is_correct"][:, :-1],
+                batch_dict["is_correct"][:, :-1].to(device),
             ],
             -1,
         )
@@ -308,7 +308,7 @@ class SAINT(pl.LightningModule):
 
         prediction = self.generator(transformer_output).squeeze(-1)  # (B, L)
         y = batch_dict["is_correct"].float()
-        ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction, 2 - y)  # (B, L)
+        ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to("cpu"), 2 - y)  # (B, L)
 
         results = {
             "loss": ce_loss,

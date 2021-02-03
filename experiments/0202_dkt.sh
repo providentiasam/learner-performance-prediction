@@ -5,8 +5,9 @@ for tt in "${test_types[@]}"
 do
     for wf in "${weight_files[@]}"
     do
-        command="python behavior_test.py --dataset spanish --model dkt1 --test_type ${tt} --load_dir ./save --filename ${wf} --diff_threshold 0.05 --gpu 5,6"
+        command="python behavior_test.py --dataset spanish --model dkt1 --test_type ${tt} --load_dir ./save --filename ${wf} --diff_threshold 0 --gpu 5,6"
         echo "${command}"
         eval "${command}"
+        break
     done
 done

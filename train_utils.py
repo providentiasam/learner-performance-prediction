@@ -208,11 +208,13 @@ def eval_batches(model, batches, device='cpu', is_dkt1=False):
                 labels = labels.cuda()
             if is_dkt1:
                 preds, _ = model(item_inputs, skill_inputs)
+                preds = preds[:, :, -1]
                 preds = torch.sigmoid(
                     get_preds(preds, item_ids, skill_ids, labels)
-                ).cpu().numpy()
+                ).flatten().cpu().numpy()
             else:
                 preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
                 preds = torch.sigmoid(preds[labels >= 0]).flatten().cpu().numpy()
             test_preds = np.concatenate([test_preds, preds])
+    print(test_preds.size)
     return test_preds
