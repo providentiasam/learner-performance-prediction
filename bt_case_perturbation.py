@@ -51,10 +51,15 @@ def gen_perturbation(orig_df, perturb_func, **pf_args):
         new_df = perturb_func(user_key_df, **pf_args)
         new_df_list.append(new_df)
     new_data = pd.concat(new_df_list, axis=0).reset_index(drop=True)
+    new_data['user_id'] = new_data['user_id'].astype(str)
     data_meta = {
         'num_sample': new_data['user_id'].unique().shape[0],
         'num_interaction': new_data.shape[0],
     }
+    virtual_user_id = 0
+    for user_id in new_data['user_id'].unique():
+        new_data.loc[new_data['user_id']==user_id, 'user_id'] = virtual_user_id
+        virtual_user_id += 1
     return new_data, data_meta
 
 

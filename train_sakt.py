@@ -104,14 +104,15 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str, default='ednet_small')
-    parser.add_argument('--gpus', type=str, default='1')
-    parser.add_argument('--xlsx_setup', type=bool, default=False)
+    parser.add_argument('--setup', type=str or bool, default='all')
+    parser.add_argument('--gpus', type=str, default='4,5,6,7')
+    parser.add_argument('--xlsx_setup', type=bool, default=True)
     args_ = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
     DEBUGGING = False
     TRAIN = True
-    REPEAT = 1
+    REPEAT = 3
+    REVERSE = False
     if DEBUGGING:
         os.environ["CUDA_VISIBLE_DEVICES"] = "7"  
         setup_path = './setups/sakt_loop_test.xlsx'
@@ -126,7 +127,7 @@ if __name__ == "__main__":
         }, 
         # {'num_attn_layers': 2}
         ])
-    elif args_.xlsx_setup:
+    elif args_.setup:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
         setup_page = pd.read_excel(setup_path)
     else:
@@ -153,8 +154,16 @@ if __name__ == "__main__":
         if col not in setup_page.columns:
             setup_page[col] = np.nan    
     setup_page[setup_cols] = setup_page[setup_cols].ffill()
+    print(setup_page.iloc[0])
     
-    for setup_index in setup_page.index:
+    if REVERSE:
+        save_path = setup_path.replace('.xlsx', '_rev.xlsx')
+        loop_through = reversed(setup_page.index)
+    else:
+        save_path = setup_path
+        loop_through = setup_page.index
+
+    for setup_index in loop_through:
         try:
             dataset = setup_page['dataset'][setup_index]
             full_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data.csv'), sep="\t")
@@ -164,11 +173,8 @@ if __name__ == "__main__":
             setup_page.loc[setup_index, 'logdir'] = 'runs/sakt/' + dataset + '/'
             setup_page.loc[setup_index, 'savedir'] = 'save/sakt/' + dataset + '/'
             args = setup_page.loc[setup_index]
-            args.loc['dataset'] = dataset
-            print(args)
             stop_experiment = False # Stop current setup for whatever reason possible.
             if args[[f'test{i+1}' for i in range(REPEAT)]].notnull().all():
-                print(args, ' already done')
                 continue
             for rand_seed in range(int(args['repeat'])):
                 set_random_seeds(rand_seed)
@@ -177,7 +183,8 @@ if __name__ == "__main__":
                 num_items = int(full_df["item_id"].max() + 1)
                 num_skills = int(full_df["skill_id"].max() + 1)
                 model = SAKT(num_items, num_skills, int(args.embed_size), int(args.num_attn_layers), int(args.num_heads),
-                            bool(args.encode_pos), int(args.max_pos), args.drop_prob, query_feed=args.query_feed).cuda()
+                            bool(args.encode_pos), int(args.max_pos), args.drop_prob, query_feed=args.query_feed, \
+                                query_highpass=args.query_highpass).cuda()
                 if torch.cuda.device_count() > 1:
                     print('using {} GPUs'.format(torch.cuda.device_count()))
                     model = nn.DataParallel(model)
@@ -209,8 +216,8 @@ if __name__ == "__main__":
                 if 1:
                     print('Testing...')
                     test_data, _ = get_chunked_data(test_df, int(args.max_length), train_split=1.0, \
-                        randomize=False, stride=5, non_overlap_only=True)
-                    test_batches = prepare_batches(test_data, batch_size=32, randomize=False)
+                        randomize=False, stride=1, non_overlap_only=True)
+                    test_batches = prepare_batches(test_data, batch_size=64, randomize=False)
                     test_preds = np.empty(0)
                     model.eval()
                     for item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels in test_batches:
@@ -231,12 +238,17 @@ if __name__ == "__main__":
                     setup_page.loc[setup_index, 'valid{}'.format(exp_ind)] = saver.score_max
                     setup_page.loc[setup_index, 'best_epoch'] = saver.best_epoch
                     # setup_page.loc[setup_index, 'train{}'.format(exp_ind)] = saver.other_info['auc/train']
-                    setup_page.to_excel(setup_path.replace('setups/', 'results/'))
+
+                    setup_page.to_excel(save_path.replace('setups/', 'results/'))
+                    setup_page.to_excel(save_path)
 
                 logger.close()
                 del model
 
         except Exception as e:
+            print(e)
             setup_page.loc[setup_index, 'remark'] = str(e)
+            setup_page.to_excel(save_path.replace('setups/', 'results/'))
 
-
+    setup_page.to_excel(save_path.replace('setups/', 'results/'))
+    setup_page.to_excel(save_path)

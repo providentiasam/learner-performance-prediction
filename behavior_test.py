@@ -27,12 +27,12 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="saint")
-    parser.add_argument("--test_type", type=str, default="reconstruction")
+    parser.add_argument("--test_type", type=str, default="insertion")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str,\
          default="spanish")
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
-    parser.add_argument("--diff_threshold", type=float, default=0.05)
+    parser.add_argument("--gpu", type=str, default="1,2,3")
+    parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -124,9 +124,9 @@ if __name__ == "__main__":
     test_funcs = {
         'reconstruction': test_knowledge_state,
         'repetition': test_simple,
-        'insertion': test_perturbation,
-        'deletion': test_perturbation,
-        'replacement': test_perturbation,
+        'insertion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
+        'deletion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
+        'replacement': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'question_prior': lambda x: test_question_prior(x, item_meta=other_info, test_name=args.model),
         'original': lambda x: test_simple(x, testcol='correct')
     }
