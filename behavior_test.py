@@ -21,22 +21,21 @@ from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-
+SUMMARY_PATH = './summary.csv'
 
 if __name__ == "__main__":
-    if not os.path.exists('./summary.csv'):
-        pd.DataFrame().to_csv('./summary.csv')
-    SUMMARY_CSV = pd.read_csv('./summary.csv', index_col=0)
-    print(SUMMARY_CSV)
+    if not os.path.exists(SUMMARY_PATH):
+        pd.DataFrame().to_csv(SUMMARY_PATH)
+    summary_csv = pd.read_csv(SUMMARY_PATH, index_col=0)
+    print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="spanish")
+    parser.add_argument("--dataset", type=str, default="statics")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
     parser.add_argument("--test_type", type=str, default="replacement")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str,\
-         default="spanish")
+    parser.add_argument("--filename", type=str, default="statics")
     parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
@@ -150,14 +149,20 @@ if __name__ == "__main__":
     result_dict = {}
     eval_col = 'testpass'
     result_df['all'] = 'all'
+    result_df.to_csv(f'./results/{args.dataset}_{args.test_type}_{args.model}.csv')
     for group_key in groupby_key:
         result_dict[group_key] = result_df.groupby(group_key)[eval_col].describe()
+    
+
+    #6. APPEND SUMMARY.
     metric_df = pd.concat([y for _, y in result_dict.items()], axis=0, keys=result_dict.keys())
+    metric_df.index.names = ['group_by', 'group_tag']
     metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
     for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
         metric_df[var] = vars(args)[var]
     metric_df['time'] = str(pd.datetime.now()).split('.')[0]
-    new_summary = pd.concat([SUMMARY_CSV, metric_df], axis=0)
+    new_summary = pd.concat([summary_csv, metric_df], axis=0)
+    new_summary.reset_index(drop=True).to_csv(SUMMARY_PATH)
     print(new_summary)
-    new_summary.to_csv('./summary.csv')
-    result_df.to_csv(f'./results/{args.dataset}_{args.test_type}_{args.model}.csv')
+
+

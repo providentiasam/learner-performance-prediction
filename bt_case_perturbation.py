@@ -5,40 +5,6 @@ import random
 import numpy as np
 
 
-# DEPRECATED
-def _test_perturbation(bt_test_df, diff_threshold=0.05):
-    bt_test_df.loc[:, 'testpass'] = np.nan
-    print(bt_test_df.head())
-    user_group_df = bt_test_df.groupby(['orig_user_id', 'orig_idx'])
-    new_df_list = []
-    cnt = 0
-    for name, group in user_group_df:
-        orig_prob = group.loc[group['is_perturbed'] == 0, 'model_pred']
-        corr_prob = group.loc[group['is_perturbed'] == 1, 'model_pred']
-        incorr_prob = group.loc[group['is_perturbed'] == -1, 'model_pred']
-        # if len(orig_prob) != 1:
-        #     continue
-        if cnt < 10:
-            print(orig_prob)
-            print(corr_prob)
-            print(incorr_prob)
-            cnt += 1
-        if len(corr_prob) == 1:
-            group.loc[group['is_perturbed'] == 1, 'orig_prob'] = orig_prob.item()
-            if corr_prob.item() >= orig_prob.item() - diff_threshold:
-                group.loc[group['is_perturbed'] == 1, 'testpass'] = True
-        if len(incorr_prob) == 1:
-            group.loc[group['is_perturbed'] == -1, 'orig_prob'] = orig_prob.item()
-            if incorr_prob.item() <= orig_prob.item() + diff_threshold:
-                group.loc[group['is_perturbed'] == -1, 'testpass'] = True
-        new_df_list.append(group)
-
-    result_df = pd.concat(new_df_list, axis=0).reset_index(drop=True)
-    result_df = result_df.loc[result_df['is_perturbed'] != 0].reset_index(drop=True)
-    groupby_key = ['all', 'is_perturbed']
-    return result_df, groupby_key
-
-
 
 def test_perturbation(bt_test_df, diff_threshold=0):
     bt_test_df.loc[:, 'testpass'] = np.nan
@@ -215,47 +181,3 @@ def perturb_replace_random(orig_df, insert_policy=None):
     new_df_list = [orig_df, new_df]
     return pd.concat(new_df_list, axis=0).reset_index(drop=True)
 
-# depercated templates
-
-
-# def generate_test_case(
-#     orig_input, orig_output, perturb_func, pf_args, pass_condition, pc_args=()
-# ):
-#     """
-#     Generates a test case with given input and output.
-#
-#     Arguments:
-#         orig_input, orig_output : original input sequence and model output
-#         perturb_func : perturbation function (ex. replace, add, ...)
-#         pass_condition : desired range of new output as a tuple (min, max)
-#         pf_args, pc_args : additional arguments for perturb_func and pass_condition
-#     """
-#     return perturb_func(orig_input, *pf_args), pass_condition(orig_output, *pc_args)
-#
-#
-# def pass_invariant(orig_output, epsilon=0.1):
-#     return orig_output - epsilon, orig_output + epsilon
-#
-#
-# def pass_increase(orig_output, maximum_output=1):
-#     return orig_output, maximum_output
-#
-#
-# def pass_decrease(orig_output, minimum_output=0):
-#     return minimum_output, orig_output
-#
-#
-# def float_in_range(output, pass_range):
-#     return pass_range[0] <= output <= pass_range[1]
-#
-#
-# def perturb_flip(orig_input, replace_index):
-#     item_inputs, skill_inputs, label_inputs, item_ids, skill_ids = orig_input
-#     label_inputs[replace_index] = 1 - label_inputs[replace_index]
-#     return item_inputs, skill_inputs, label_inputs, item_ids, skill_ids
-#
-#
-# def perturb_flip_all(orig_input, replace_value):
-#     item_inputs, skill_inputs, label_inputs, item_ids, skill_ids = orig_input
-#     label_inputs = torch.ones(label_inputs.size()) * replace_value
-#     return item_inputs, skill_inputs, label_inputs, item_ids, skill_ids
