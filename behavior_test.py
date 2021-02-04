@@ -22,16 +22,22 @@ import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
 
+
 if __name__ == "__main__":
+    if not os.path.exists('./summary.csv'):
+        pd.DataFrame().to_csv('./summary.csv')
+    SUMMARY_CSV = pd.read_csv('./summary.csv', index_col=0)
+    print(SUMMARY_CSV)
+
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="saint")
-    parser.add_argument("--test_type", type=str, default="insertion")
+        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
+    parser.add_argument("--test_type", type=str, default="replacement")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str,\
          default="spanish")
-    parser.add_argument("--gpu", type=str, default="1,2,3")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
 
@@ -52,11 +58,15 @@ if __name__ == "__main__":
         saver = Saver(args.load_dir + f'/{args.model}/{args.dataset}/', args.filename)
         model = saver.load().to(torch.device("cuda"))
         model.eval()
+        model_seq_len = {'statics': 200, 'spanish': 200, \
+            'ednet_small': 100, 'assistments15': 100, 'assistments17': 100}[args.dataset]
         model_config = argparse.Namespace(**{})
 
     test_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
     ) # Original Test-split DataFrame
+    if model_seq_len is not None:
+        test_df = test_df.groupby('user_id').head(model_seq_len).reset_index(drop=True)
 
     test_kwargs = {}
 
@@ -109,14 +119,14 @@ if __name__ == "__main__":
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
         if args.model == 'sakt': 
-            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=200, \
-                train_split=1.0, stride=10)
+            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=300, \
+                train_split=1.0, stride=1)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
-        bt_test_batch = prepare_batches(bt_test_data, 1, False)
+        bt_test_batch = prepare_batches(bt_test_data, 64, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', args.model == 'dkt1')
-        print(len(bt_test_df))
         bt_test_df['model_pred'] = bt_test_preds
+        # bt_test_df['model_pred'] = np.random.randn(len(bt_test_df))
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
 
@@ -143,6 +153,11 @@ if __name__ == "__main__":
     for group_key in groupby_key:
         result_dict[group_key] = result_df.groupby(group_key)[eval_col].describe()
     metric_df = pd.concat([y for _, y in result_dict.items()], axis=0, keys=result_dict.keys())
-    print(metric_df)
-    print("auc_test = ", roc_auc_score(result_df["correct"], result_df['model_pred']))
+    metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
+    for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
+        metric_df[var] = vars(args)[var]
+    metric_df['time'] = str(pd.datetime.now()).split('.')[0]
+    new_summary = pd.concat([SUMMARY_CSV, metric_df], axis=0)
+    print(new_summary)
+    new_summary.to_csv('./summary.csv')
     result_df.to_csv(f'./results/{args.dataset}_{args.test_type}_{args.model}.csv')
