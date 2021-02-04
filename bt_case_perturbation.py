@@ -2,10 +2,12 @@ import torch
 import pandas as pd
 from copy import deepcopy
 import random
+import numpy as np
 
 
-def test_perturbation(bt_test_df, diff_threshold=0.05):
-    bt_test_df.loc[:, 'testpass'] = False
+
+def _test_perturbation(bt_test_df, diff_threshold=0.05):
+    bt_test_df.loc[:, 'testpass'] = np.nan
     print(bt_test_df.head())
     user_group_df = bt_test_df.groupby(['orig_user_id', 'orig_idx'])
     new_df_list = []
@@ -14,8 +16,8 @@ def test_perturbation(bt_test_df, diff_threshold=0.05):
         orig_prob = group.loc[group['is_perturbed'] == 0, 'model_pred']
         corr_prob = group.loc[group['is_perturbed'] == 1, 'model_pred']
         incorr_prob = group.loc[group['is_perturbed'] == -1, 'model_pred']
-        if len(orig_prob) != 1:
-            continue
+        # if len(orig_prob) != 1:
+        #     continue
         if cnt < 10:
             print(orig_prob)
             print(corr_prob)
@@ -32,6 +34,31 @@ def test_perturbation(bt_test_df, diff_threshold=0.05):
         new_df_list.append(group)
 
     result_df = pd.concat(new_df_list, axis=0).reset_index(drop=True)
+    result_df = result_df.loc[result_df['is_perturbed'] != 0].reset_index(drop=True)
+    groupby_key = ['all', 'is_perturbed']
+    return result_df, groupby_key
+
+
+
+def test_perturbation(bt_test_df, diff_threshold=0):
+    bt_test_df.loc[:, 'testpass'] = np.nan
+    bt_test_df.loc[:, 'model_diff'] = np.nan
+    bt_test_df['new_idx'] = bt_test_df.index
+    stacked_df_dict = {}
+    for orig_user_id, group in bt_test_df.groupby('orig_user_id'):
+        new_group = group.set_index(['user_id', 'orig_idx'], drop=True).unstack('user_id')
+        unperturbed_user_id = new_group['is_perturbed'].fillna(0.0).abs().sum().idxmin()
+        assert new_group['is_perturbed'][unperturbed_user_id].fillna(0).sum() == 0
+        model_diff = new_group['model_pred'].subtract(new_group['model_pred'][unperturbed_user_id], axis=0)
+        for virtual_user_id in model_diff.columns:
+            new_group[('model_diff', virtual_user_id)] = model_diff[virtual_user_id].copy()
+        stacked_df_dict[orig_user_id] = new_group
+    result_df = pd.concat([y.stack('user_id') for _, y in stacked_df_dict.items()], axis=0).reset_index(drop=False)
+    result_df = result_df.set_index('new_idx').sort_index()
+    result_df.index = result_df.index.astype(int)
+    perturbed_idx = result_df['is_perturbed'] != 0
+    result_df.loc[perturbed_idx, 'testpass'] = \
+        (result_df.loc[perturbed_idx, 'model_diff'] * result_df.loc[perturbed_idx, 'is_perturbed']) >= -diff_threshold
     result_df = result_df.loc[result_df['is_perturbed'] != 0].reset_index(drop=True)
     groupby_key = ['all', 'is_perturbed']
     return result_df, groupby_key

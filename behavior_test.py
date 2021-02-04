@@ -45,6 +45,7 @@ if __name__ == "__main__":
         print(model_config)
         model = SAINT.load_from_checkpoint(checkpoint_path, config=model_config\
             ).to(torch.device("cuda"))
+        model_seq_len = vars(model.config)['seq_len']
         model.eval()
     else:
         print(args.load_dir + f'/{args.model}/{args.dataset}/{args.filename}')
