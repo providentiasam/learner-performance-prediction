@@ -153,14 +153,16 @@ if __name__ == "__main__":
     for group_key in groupby_key:
         result_dict[group_key] = result_df.groupby(group_key)[eval_col].describe()
     
-    #6. ADD SUMMARY.
+
+    #6. APPEND SUMMARY.
     metric_df = pd.concat([y for _, y in result_dict.items()], axis=0, keys=result_dict.keys())
+    metric_df.index.names = ['group_by', 'group_tag']
     metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
     for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
         metric_df[var] = vars(args)[var]
     metric_df['time'] = str(pd.datetime.now()).split('.')[0]
     new_summary = pd.concat([summary_csv, metric_df], axis=0)
-    new_summary.to_csv(SUMMARY_PATH)
+    new_summary.reset_index(drop=True).to_csv(SUMMARY_PATH)
     print(new_summary)
 
 
