@@ -234,13 +234,13 @@ if __name__ == "__main__":
         "--item_out",
         action="store_true",
         help="If True, use items as outputs.",
-        default=False,
+        default=True,
     )
     parser.add_argument(
         "--skill_out",
         action="store_true",
         help="If True, use skills as outputs.",
-        default=True,
+        default=False,
     )
     parser.add_argument(
         "--skill_separate",
@@ -317,7 +317,7 @@ if __name__ == "__main__":
                 f"lr={args.lr}"
             )
             logger = Logger(os.path.join(args.logdir, param_str))
-            saver = Saver(args.savedir, param_str)
+            saver = Saver(args.savedir, param_str, patience=100)
             train(
                 train_data,
                 val_data,

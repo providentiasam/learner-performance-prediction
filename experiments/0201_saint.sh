@@ -1,4 +1,4 @@
-test_types=("insertion" "deletion" "replacement" "original")
+test_types=("replacement")
 indices=(1 2 3 4)
 dataset=("spanish" "statics" "ednet_small" "assistments15" "assistments17")
 filename=("val_auc=0.8633" "val_auc=0.8282" "val_auc=0.7344" "val_auc=0.7201" "val_auc=0.7709")
