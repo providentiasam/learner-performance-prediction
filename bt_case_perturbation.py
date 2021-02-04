@@ -5,7 +5,7 @@ import random
 import numpy as np
 
 
-
+# DEPRECATED
 def _test_perturbation(bt_test_df, diff_threshold=0.05):
     bt_test_df.loc[:, 'testpass'] = np.nan
     print(bt_test_df.head())
@@ -59,7 +59,6 @@ def test_perturbation(bt_test_df, diff_threshold=0):
     perturbed_idx = result_df['is_perturbed'] != 0
     result_df.loc[perturbed_idx, 'testpass'] = \
         (result_df.loc[perturbed_idx, 'model_diff'] * result_df.loc[perturbed_idx, 'is_perturbed']) >= -diff_threshold
-    result_df = result_df.loc[result_df['is_perturbed'] != 0].reset_index(drop=True)
     groupby_key = ['all', 'is_perturbed']
     return result_df, groupby_key
 
