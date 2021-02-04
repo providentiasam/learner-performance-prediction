@@ -193,7 +193,7 @@ def perturb_replace_random(orig_df, insert_policy=None):
     orig_df.loc[:, 'orig_user_id'] = orig_df['user_id']
     orig_df.loc[:, 'orig_idx'] = orig_df.index
     orig_df.loc[:, 'is_perturbed'] = 0
-    copy_idx = random.randrange(0, len(orig_df))
+    copy_idx = random.randrange(0, len(orig_df)-1)
     if insert_policy == "first":
         insert_idx = 0
     elif insert_policy == "middle":

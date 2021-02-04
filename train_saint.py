@@ -307,7 +307,7 @@ class SAINT(pl.LightningModule):
         )  # (B, L, D)
 
         prediction = self.generator(transformer_output).squeeze(-1)  # (B, L)
-        y = batch_dict["is_correct"].float()
+        y = batch_dict["is_correct"].float().to(device)
         ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), 2 - y)  # (B, L)
 
         results = {
