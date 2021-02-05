@@ -40,12 +40,9 @@ def test_question_prior(
     test_name='default'
     ):
     all_df = pd.concat([bt_test_df, item_meta], axis=1)
-    all_df['testpass'] = True
-    all_df['discrepancy'] = all_df['model_pred'].subtract(all_df['prob_correct']).abs()
-    print(all_df['model_pred'].describe())
-    print(all_df['discrepancy'].describe())
-    print(all_df[['model_pred', 'prob_correct']].corr())
-    print(spearmanr(all_df['model_pred'].values, all_df['prob_correct'].values))
+    all_df['test_measure'] = all_df['model_pred'].subtract(all_df['prob_correct']).abs()
+    all_df['test_measure_rankcorr'] = spearmanr(all_df['model_pred'].values, all_df['prob_correct'].values)
+    all_df['test_measure_corr'] = all_df[['model_pred', 'prob_correct']].corr().iloc[0,1]
     groupby_key = ['all']
     all_df.plot(kind='scatter', x='prob_correct', y='model_pred')
     plt.savefig(f'./results/{test_name}_scatter_plot.png')

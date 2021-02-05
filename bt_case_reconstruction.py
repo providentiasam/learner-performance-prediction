@@ -4,13 +4,13 @@ import random
 
 
 def test_simple(bt_test_df, testcol='testpoint'):
-    bt_test_df['testpass'] = (bt_test_df[testcol] == bt_test_df['model_pred'].round())
+    bt_test_df['test_measure'] = (bt_test_df[testcol] == bt_test_df['model_pred'].round())
     groupby_key = ['all', testcol]
     return bt_test_df, groupby_key
 
 
 def test_knowledge_state(bt_test_df, testcol='testpoint'):
-    bt_test_df['testpass'] = (bt_test_df['avg'] - bt_test_df['model_pred']).abs()
+    bt_test_df['test_measure'] = (bt_test_df['avg'] - bt_test_df['model_pred']).abs()
     groupby_key = ['all', testcol]
     return bt_test_df, groupby_key
 

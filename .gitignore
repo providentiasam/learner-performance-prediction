@@ -1,6 +1,10 @@
 __pycache__
 runs
 save
+data
+results
+wandb
+setups
 .idea
 lightning_logs
 Pipfile.lock

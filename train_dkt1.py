@@ -215,7 +215,7 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DKT1.")
-    parser.add_argument("--dataset", type=str, default="spanish")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--logdir", type=str, default="runs/dkt1")
     parser.add_argument("--savedir", type=str, default="save/dkt1")
     parser.add_argument("--gpus", type=str, default="4,5,6,7")
@@ -249,7 +249,7 @@ if __name__ == "__main__":
         help="If True, train a separate model for every skill.",
         default=False,
     )
-    parser.add_argument("--hid_size", type=int, default=50)
+    parser.add_argument("--hid_size", type=int, default=100)
     parser.add_argument("--num_hid_layers", type=int, default=2)
     parser.add_argument("--drop_prob", type=float, default=0.5)
     parser.add_argument("--batch_size", type=int, default=100)

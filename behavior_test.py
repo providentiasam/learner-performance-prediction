@@ -21,7 +21,7 @@ from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary_dkt.csv'
+SUMMARY_PATH = './summary_qp.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -32,10 +32,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="dkt1")
-    parser.add_argument("--test_type", type=str, default="original")
+        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
+    parser.add_argument("--test_type", type=str, default="repetition")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="spanish")
+    parser.add_argument("--filename", type=str, default="best")
     parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     # 1. LOAD DATA + PRE-TRAINED MODEL - {SAINT, DKT, BESTLR, SAKT}
     if args.model == 'saint':
-        checkpoint_path = f'./save/{args.model}/' + args.filename + '.ckpt'
+        checkpoint_path = f'./save/{args.model}/{args.dataset}/' + args.filename + '.ckpt'
         with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'rb') as file:
             model_config = argparse.Namespace(**pickle.load(file))
         print(model_config)
@@ -124,7 +124,7 @@ if __name__ == "__main__":
                 train_split=1.0, stride=1)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
-        bt_test_batch = prepare_batches(bt_test_data, 64, False)
+        bt_test_batch = prepare_batches(bt_test_data, 5, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', model_name=args.model)
         bt_test_df['model_pred'] = bt_test_preds
         # bt_test_df['model_pred'] = np.random.randn(len(bt_test_df))
@@ -143,13 +143,13 @@ if __name__ == "__main__":
         'original': lambda x: test_simple(x, testcol='correct')
     }
     result_df, groupby_key = test_funcs[args.test_type](bt_test_df)
-        # result_df: bt_test_df appended with 'testpass' column or any additional test-case-specific info.
+        # result_df: bt_test_df appended with 'test_measure' column or any additional test-case-specific info.
         # groupby_key: list of column names in result_df for 5's mutually exclusive subset-wise analysis.
 
 
     # 5. GET SUMMARY STAT.
     result_dict = {}
-    eval_col = 'testpass'
+    eval_col = 'test_measure'
     result_df['all'] = 'all'
     result_df.to_csv(f'./results/{args.dataset}_{args.test_type}_{args.model}.csv')
     for group_key in groupby_key:

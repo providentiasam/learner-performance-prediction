@@ -7,7 +7,6 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 
 def get_dkt1_preds(preds, item_ids, skill_ids, labels):
     preds = preds[labels >= 0]
-
     if item_ids is not None:
         item_ids = item_ids[labels >= 0]
         preds = preds[torch.arange(preds.size(0)), item_ids]
@@ -107,12 +106,12 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
         max_length (int): maximum length of a sequence chunk
         train_split (float): proportion of data to use for training
     """
-    item_ids = [
-        torch.tensor(u_df["item_id"].values, dtype=torch.long)
+    item_ids = [  # add 1 for start token
+        torch.tensor(u_df["item_id"].values + 1, dtype=torch.long)
         for _, u_df in df.groupby("user_id")
     ]
-    skill_ids = [
-        torch.tensor(u_df["skill_id"].values, dtype=torch.long)
+    skill_ids = [  # add 1 for start token
+        torch.tensor(u_df["skill_id"].values + 1, dtype=torch.long)
         for _, u_df in df.groupby("user_id")
     ]
     labels = [
@@ -121,11 +120,11 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
     ]
     stride = max_length if stride is None else stride
 
-    item_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), i + 1))[:-1] for i in item_ids
+    item_inputs = [  # shift for key / value inputs
+        torch.cat((torch.zeros(1, dtype=torch.long), i))[:-1] for i in item_ids
     ]
     skill_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), s + 1))[:-1] for s in skill_ids
+        torch.cat((torch.zeros(1, dtype=torch.long), s))[:-1] for s in skill_ids
     ]
     label_inputs = [
         torch.cat((torch.zeros(1, dtype=torch.long), l))[:-1] for l in labels
@@ -137,7 +136,7 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
         list = [window_split(elem, max_length, stride) for elem in list]
         return [elem for sublist in list for elem in sublist]
 
-    # Chunk sequences
+    # Chunk sequences: '_inputs' go to key/value / '_ids' go to query
     lists = (item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
     chunked_lists = [chunk(l, stride) for l in lists]
     if non_overlap_only:

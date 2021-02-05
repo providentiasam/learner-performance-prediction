@@ -111,10 +111,10 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
     DEBUGGING = False
     TRAIN = True
-    REPEAT = 3
+    REPEAT = 2
     REVERSE = False
     if DEBUGGING:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "7"  
+        os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"  
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
             'dataset': 'spanish',
@@ -123,7 +123,8 @@ if __name__ == "__main__":
             'embed_size': 64,
             'num_heads': 4,
             'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.5, 'batch_size': 600, 'optimizer': 'adam',
-            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 20, 'repeat': 1, 'stride': 50, 'dim_ff': 128
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 20, 'repeat': 1, 'stride': 50, 'dim_ff': 128,
+            'query_feed': False, 'query_highpass': False
         }, 
         # {'num_attn_layers': 2}
         ])
