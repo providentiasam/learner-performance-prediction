@@ -8,7 +8,7 @@ class Logger:
     """Logging with TensorboardX. """
 
     def __init__(self, logdir, verbose=True, \
-        project_name='project', run_name='run', model_args={}):
+        project_name=None, run_name='run', model_args={}):
         if not os.path.exists(logdir):
             os.makedirs(logdir)
         try:
@@ -16,9 +16,12 @@ class Logger:
         except FileNotFoundError:
             pass
 
-        wandb.init(project=project_name, \
-            name=run_name, config=model_args)
-        print('wandb init')
+        if project_name is not None:
+            wandb.init(project=project_name, name=run_name, config=model_args)
+            print('wandb init')
+            self.wandb = True
+        else:
+            self.wandb = False
 
         self.verbose = verbose
         self.writer = SummaryWriter(logdir)
@@ -32,7 +35,8 @@ class Logger:
         """Log dictionary of scalar values. """
         for k, v in dic.items():
             self.writer.add_scalar(k, v, step)
-        wandb.log(dic, step=step)
+        if self.wandb:
+            wandb.log(dic, step=step)
 
         if self.verbose:
             print(f"Step {step}, {dic}")
