@@ -41,7 +41,8 @@ def gen_perturbation(orig_df, perturb_func, **pf_args):
     new_df_list = []
     for user_id, user_key_df in orig_df.groupby(["user_id"]):
         new_df = perturb_func(user_key_df, **pf_args)
-        new_df_list.append(new_df)
+        if new_df is not None:
+            new_df_list.append(new_df)
     new_data = pd.concat(new_df_list, axis=0).reset_index(drop=True)
     new_data['user_id'] = new_data['user_id'].astype(str)
     data_meta = {
@@ -159,6 +160,8 @@ def perturb_replace_random(orig_df, insert_policy=None):
     orig_df.loc[:, 'orig_user_id'] = orig_df['user_id']
     orig_df.loc[:, 'orig_idx'] = orig_df.index
     orig_df.loc[:, 'is_perturbed'] = 0
+    if len(orig_df) <= 2:
+        return None
     copy_idx = random.randrange(0, len(orig_df)-1)
     if insert_policy == "first":
         insert_idx = 0
