@@ -104,33 +104,37 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str or bool, default='all')
-    parser.add_argument('--gpus', type=str, default='4,5,6,7')
+    parser.add_argument('--setup', type=str or bool, default='algebra05')
+    parser.add_argument('--gpus', type=str, default='1,2,3')
     parser.add_argument('--xlsx_setup', type=bool, default=True)
     args_ = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
-    DEBUGGING = False
+    DEBUGGING = True
     TRAIN = True
-    REPEAT = 2
+    REPEAT = 3
     REVERSE = False
     if DEBUGGING:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"  
+        os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"  
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
-            'dataset': 'spanish',
-            'num_attn_layers': 2,
+            'dataset': 'ednet_medium',
+            'num_attn_layers': 3,
             'max_length': 400,
             'embed_size': 64,
-            'num_heads': 4,
-            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.5, 'batch_size': 600, 'optimizer': 'adam',
-            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 20, 'repeat': 1, 'stride': 50, 'dim_ff': 128,
-            'query_feed': False, 'query_highpass': False
+            'num_heads': 16,
+            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.25, 'batch_size': 600, 'optimizer': 'noam',
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 100, 'repeat': 1, 'stride': 50,
+            'query_feed': True, 'query_highpass': True
         }, 
         # {'num_attn_layers': 2}
         ])
     elif args_.setup:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
         setup_page = pd.read_excel(setup_path)
+        if 1:
+            setup_page['stride'] = 50
+            setup_page['query_feed'] = False
+            setup_page['query_highpass'] = False
     else:
         setup_path = './setups/sakt_{}.xlsx'.format(str(pd.datetime.now()).split('.')[0])
         setup_products = {
@@ -166,7 +170,7 @@ if __name__ == "__main__":
 
     for setup_index in loop_through:
         try:
-            dataset = setup_page['dataset'][setup_index]
+            dataset = args_.setup
             full_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data.csv'), sep="\t")
             train_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_train.csv'), sep="\t")
             test_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_test.csv'), sep="\t")
@@ -196,7 +200,7 @@ if __name__ == "__main__":
                         # Train
                         param_str = '_'.join([str(x) + str(y) for x, y in args.to_dict().items()])[:200]
                         optimizer = 'adam' if 'optimizer' not in args.index else args['optimizer']
-                        logger = Logger(os.path.join(args.logdir, param_str))
+                        logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_sakt', run_name=str(pd.datetime.now()), model_args=args.to_dict())
                         saver = Saver(args.savedir, param_str, patience=7 if dataset not in {'ednet', 'ednet_medium'} else 3)
                         if TRAIN:
                             train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),

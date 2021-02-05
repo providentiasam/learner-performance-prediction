@@ -32,8 +32,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
-    parser.add_argument("--test_type", type=str, default="repetition")
+        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="dkt1")
+    parser.add_argument("--test_type", type=str, default="question_prior")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="best")
     parser.add_argument("--gpu", type=str, default="4,5,6,7")

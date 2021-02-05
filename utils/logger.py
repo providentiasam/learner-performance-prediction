@@ -1,18 +1,24 @@
 import os
 import shutil
 from tensorboardX import SummaryWriter
+import wandb
 
 
 class Logger:
     """Logging with TensorboardX. """
 
-    def __init__(self, logdir, verbose=True):
+    def __init__(self, logdir, verbose=True, \
+        project_name='project', run_name='run', model_args={}):
         if not os.path.exists(logdir):
             os.makedirs(logdir)
         try:
             shutil.rmtree(logdir)
         except FileNotFoundError:
             pass
+
+        wandb.init(project=project_name, \
+            name=run_name, config=model_args)
+        print('wandb init')
 
         self.verbose = verbose
         self.writer = SummaryWriter(logdir)
@@ -26,6 +32,7 @@ class Logger:
         """Log dictionary of scalar values. """
         for k, v in dic.items():
             self.writer.add_scalar(k, v, step)
+        wandb.log(dic, step=step)
 
         if self.verbose:
             print(f"Step {step}, {dic}")

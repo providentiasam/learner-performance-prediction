@@ -26,7 +26,8 @@ class SAKT(nn.Module):
         max_pos,
         drop_prob,
         query_feed=False,
-        query_highpass=False
+        query_highpass=False,
+        hid_size=0
     ):
         """Self-attentive knowledge tracing.
 
