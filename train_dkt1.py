@@ -11,7 +11,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from models.model_dkt1 import DKT1
 from utils import *
-from train_utils import prepare_batches
+from train_utils import prepare_batches, get_dkt1_preds
 
 
 def cuda(tensor):
@@ -215,9 +215,10 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DKT1.")
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--logdir", type=str, default="runs/dkt1")
     parser.add_argument("--savedir", type=str, default="save/dkt1")
+    parser.add_argument("--gpus", type=str, default="4,5,6,7")
     parser.add_argument(
         "--item_in",
         action="store_true",
@@ -248,12 +249,12 @@ if __name__ == "__main__":
         help="If True, train a separate model for every skill.",
         default=False,
     )
-    parser.add_argument("--hid_size", type=int, default=64)
-    parser.add_argument("--num_hid_layers", type=int, default=1)
+    parser.add_argument("--hid_size", type=int, default=50)
+    parser.add_argument("--num_hid_layers", type=int, default=2)
     parser.add_argument("--drop_prob", type=float, default=0.5)
     parser.add_argument("--batch_size", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--num_epochs", type=int, default=20)
+    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument(
         "--log_prediction",
         action="store_true",
@@ -262,6 +263,8 @@ if __name__ == "__main__":
         default=False
     )
     args = parser.parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
+
 
     assert args.item_in or args.skill_in  # Use at least one of skills or items as input
     assert (

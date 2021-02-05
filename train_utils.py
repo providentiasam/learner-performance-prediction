@@ -5,15 +5,15 @@ from torch.nn.utils.rnn import pad_sequence
 from sklearn.metrics import roc_auc_score, accuracy_score
 
 
-def get_preds(preds, item_ids, skill_ids, labels):
+def get_dkt1_preds(preds, item_ids, skill_ids, labels):
     preds = preds[labels >= 0]
 
-    # if item_ids is not None:
-    #     item_ids = item_ids[labels >= 0]
-    #     preds = preds[torch.arange(preds.size(0)), item_ids]
-    # elif skill_ids is not None:
-    #     skill_ids = skill_ids[labels >= 0]
-    #     preds = preds[torch.arange(preds.size(0)), skill_ids]
+    if item_ids is not None:
+        item_ids = item_ids[labels >= 0]
+        preds = preds[torch.arange(preds.size(0)), item_ids]
+    elif skill_ids is not None:
+        skill_ids = skill_ids[labels >= 0]
+        preds = preds[torch.arange(preds.size(0)), skill_ids]
 
     return preds
 
@@ -37,7 +37,7 @@ def window_split(x, window_size=100, stride=50, return_nonoverlap=False):
         return splits
 
 
-def get_data(df, train_split=0.8, randomize=True):
+def get_data(df, train_split=0.8, randomize=True, model_name=None):
     """Extract sequences from dataframe.
 
     Arguments:
@@ -56,20 +56,40 @@ def get_data(df, train_split=0.8, randomize=True):
         torch.tensor(u_df["correct"].values, dtype=torch.long)
         for _, u_df in df.groupby("user_id")
     ]
-
-    item_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), i))[:-1] for i in item_ids
-    ]
-    skill_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), s))[:-1] for s in skill_ids
-    ]
-    label_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), l))[:-1] for l in labels
-    ]
-
+    if model_name is None:
+        item_inputs = [
+            torch.cat((torch.zeros(1, dtype=torch.long), i))[:-1] for i in item_ids
+        ]
+        skill_inputs = [
+            torch.cat((torch.zeros(1, dtype=torch.long), s))[:-1] for s in skill_ids
+        ]
+        label_inputs = [
+            torch.cat((torch.zeros(1, dtype=torch.long), l))[:-1] for l in labels
+        ]
+    elif model_name == 'dkt1':
+        item_in, skill_in, item_out, skill_out = True, True, True, False
+        item_inputs = [
+            torch.cat((torch.zeros(1, dtype=torch.long), i * 2 + l + 1))[:-1]
+            for (i, l) in zip(item_ids, labels)
+        ]
+        skill_inputs = [
+            torch.cat((torch.zeros(1, dtype=torch.long), s * 2 + l + 1))[:-1]
+            for (s, l) in zip(skill_ids, labels)
+        ]
+        label_inputs = [
+            torch.cat((torch.zeros(1, dtype=torch.long), l))[:-1] for l in labels
+        ]
+        item_inputs = item_inputs if item_in else [None] * len(item_inputs)
+        skill_inputs = skill_inputs if skill_in else [None] * len(skill_inputs)
+        item_ids = item_ids if item_out else [None] * len(item_ids)
+        skill_ids = skill_ids if skill_out else [None] * len(skill_ids)
+    else:
+        raise NotImplementedError
+    
     data = list(
         zip(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
     )
+
     if randomize:
         shuffle(data)
 
@@ -187,7 +207,7 @@ def compute_loss(preds, labels, criterion):
     return criterion(preds, labels)
 
 
-def eval_batches(model, batches, device='cpu', is_dkt1=False):
+def eval_batches(model, batches, device='cpu', model_name=None):
     model.eval()
     test_preds = np.empty(0)
     for (
@@ -199,20 +219,25 @@ def eval_batches(model, batches, device='cpu', is_dkt1=False):
             labels,
     ) in batches:
         with torch.no_grad():
-            if device == 'cuda':
-                item_inputs = item_inputs.cuda()
-                skill_inputs = skill_inputs.cuda()
-                label_inputs = label_inputs.cuda()
-                item_ids = item_ids.cuda()
-                skill_ids = skill_ids.cuda()
-                labels = labels.cuda()
-            if is_dkt1:
+
+            if model_name is not None and model_name=='dkt1':
+                if device == 'cuda':
+                    item_inputs = item_inputs.cuda()
+                    skill_inputs = skill_inputs.cuda()
+                    label_inputs = label_inputs.cuda()
+                    labels = labels.cuda()
                 preds, _ = model(item_inputs, skill_inputs)
-                preds = preds[:, :, -1]
                 preds = torch.sigmoid(
-                    get_preds(preds, item_ids, skill_ids, labels)
+                    get_dkt1_preds(preds, item_ids, skill_ids, labels)
                 ).flatten().cpu().numpy()
             else:
+                if device == 'cuda':
+                    item_inputs = item_inputs.cuda()
+                    skill_inputs = skill_inputs.cuda()
+                    label_inputs = label_inputs.cuda()
+                    item_ids = item_ids.cuda()
+                    skill_ids = skill_ids.cuda()
+                    labels = labels.cuda()
                 preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
                 preds = torch.sigmoid(preds[labels >= 0]).flatten().cpu().numpy()
             test_preds = np.concatenate([test_preds, preds])
