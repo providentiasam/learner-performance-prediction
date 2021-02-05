@@ -21,7 +21,7 @@ from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary.csv'
+SUMMARY_PATH = './summary_dkt.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -30,12 +30,12 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="statics")
+    parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
-    parser.add_argument("--test_type", type=str, default="replacement")
+        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="dkt1")
+    parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="statics")
+    parser.add_argument("--filename", type=str, default="spanish")
     parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
@@ -59,6 +59,8 @@ if __name__ == "__main__":
         model.eval()
         model_seq_len = {'statics': 200, 'spanish': 200, \
             'ednet_small': 100, 'assistments15': 100, 'assistments17': 100}[args.dataset]
+        if args.test_type == 'original':
+            model_seq_len = None
         model_config = argparse.Namespace(**{})
 
     test_df = pd.read_csv(
@@ -121,9 +123,9 @@ if __name__ == "__main__":
             bt_test_data, _ = get_chunked_data(bt_test_df, max_length=300, \
                 train_split=1.0, stride=1)
         else:
-            bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False)
+            bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
         bt_test_batch = prepare_batches(bt_test_data, 64, False)
-        bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', args.model == 'dkt1')
+        bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', model_name=args.model)
         bt_test_df['model_pred'] = bt_test_preds
         # bt_test_df['model_pred'] = np.random.randn(len(bt_test_df))
         if last_one_only:
@@ -161,8 +163,10 @@ if __name__ == "__main__":
     for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
         metric_df[var] = vars(args)[var]
     metric_df['time'] = str(pd.datetime.now()).split('.')[0]
-    new_summary = pd.concat([summary_csv, metric_df], axis=0)
-    new_summary.reset_index(drop=True).to_csv(SUMMARY_PATH)
+    metric_df = metric_df.reset_index(drop=False)
+    print(metric_df.loc[0])
+    new_summary = pd.concat([summary_csv, metric_df], axis=0).reset_index(drop=True)
+    new_summary.to_csv(SUMMARY_PATH)
     print(new_summary)
 
 
