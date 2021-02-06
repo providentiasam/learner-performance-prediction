@@ -104,17 +104,14 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str or bool, default='algebra05')
-    parser.add_argument('--gpus', type=str, default='1,2,3')
+    parser.add_argument('--setup', type=str or bool, default='ednet_medium')
+    parser.add_argument('--gpus', type=str, default='5,6,7')
     parser.add_argument('--xlsx_setup', type=bool, default=True)
     args_ = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
-    DEBUGGING = True
-    TRAIN = True
-    REPEAT = 3
-    REVERSE = False
+    DEBUGGING = False
+    REPEAT = 1
     if DEBUGGING:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"  
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
             'dataset': 'ednet_medium',
@@ -125,16 +122,15 @@ if __name__ == "__main__":
             'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.25, 'batch_size': 600, 'optimizer': 'noam',
             'lr': 0.003, 'grad_clip': 10, 'num_epochs': 100, 'repeat': 1, 'stride': 50,
             'query_feed': True, 'query_highpass': True
-        }, 
-        # {'num_attn_layers': 2}
+        }, {'query_feed': False, 'query_highpass': True}, {'query_feed': True, 'query_highpass': False},
+        {'query_feed': False, 'query_highpass': False},
         ])
     elif args_.setup:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
         setup_page = pd.read_excel(setup_path)
         if 1:
-            setup_page['stride'] = 50
-            setup_page['query_feed'] = False
-            setup_page['query_highpass'] = False
+            if 'dataset' not in setup_page.columns:
+                setup_page['dataset'] = args_.setup
     else:
         setup_path = './setups/sakt_{}.xlsx'.format(str(pd.datetime.now()).split('.')[0])
         setup_products = {
@@ -159,22 +155,15 @@ if __name__ == "__main__":
         if col not in setup_page.columns:
             setup_page[col] = np.nan    
     setup_page[setup_cols] = setup_page[setup_cols].ffill()
-    print(setup_page.iloc[0])
-    
-    if REVERSE:
-        save_path = setup_path.replace('.xlsx', '_rev.xlsx')
-        loop_through = reversed(setup_page.index)
-    else:
-        save_path = setup_path
-        loop_through = setup_page.index
 
+    save_path = setup_path
+    loop_through = setup_page.index
     for setup_index in loop_through:
         try:
-            dataset = args_.setup
+            dataset = setup_page['dataset'][setup_index]
             full_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data.csv'), sep="\t")
             train_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_train.csv'), sep="\t")
             test_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_test.csv'), sep="\t")
-            args = setup_page.loc[setup_index]
             setup_page.loc[setup_index, 'logdir'] = 'runs/sakt/' + dataset + '/'
             setup_page.loc[setup_index, 'savedir'] = 'save/sakt/' + dataset + '/'
             args = setup_page.loc[setup_index]
@@ -194,17 +183,16 @@ if __name__ == "__main__":
                     print('using {} GPUs'.format(torch.cuda.device_count()))
                     model = nn.DataParallel(model)
                 model.to(torch.device("cuda"))
-
+                param_str = '_'.join([str(x) + str(y) for x, y in args.to_dict().items()])[:200]
+                logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_sakt', \
+                            run_name=dataset + ' ' + str(pd.datetime.now()), model_args=args.to_dict())
                 while True: # Reduce batch size until it fits on GPU
-                    try:
-                        # Train
-                        param_str = '_'.join([str(x) + str(y) for x, y in args.to_dict().items()])[:200]
+                    try:    
                         optimizer = 'adam' if 'optimizer' not in args.index else args['optimizer']
-                        logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_sakt', run_name=str(pd.datetime.now()), model_args=args.to_dict())
-                        saver = Saver(args.savedir, param_str, patience=7 if dataset not in {'ednet', 'ednet_medium'} else 3)
-                        if TRAIN:
-                            train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),
+                        saver = Saver(args.savedir, param_str, patience=7 if dataset not in {'ednet', 'ednet_medium'} else 20)
+                        train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),
                                 int(args.batch_size), args.grad_clip)
+                        logger.log_scalars({'adj_batch_size': args.batch_size}, step=logger.step)
                         break
                     except RuntimeError:
                         args.loc['batch_size'] = args.batch_size // 2
@@ -214,14 +202,13 @@ if __name__ == "__main__":
                             stop_experiment = True
                             break
                 if stop_experiment:
-                    print('GPU too small to create meaningfully large mini-batch.')
                     break
                 model = saver.load()
                 
                 if 1:
                     print('Testing...')
                     test_data, _ = get_chunked_data(test_df, int(args.max_length), train_split=1.0, \
-                        randomize=False, stride=1, non_overlap_only=True)
+                        randomize=False, stride=5, non_overlap_only=True)
                     test_batches = prepare_batches(test_data, batch_size=64, randomize=False)
                     test_preds = np.empty(0)
                     model.eval()
@@ -237,17 +224,16 @@ if __name__ == "__main__":
                             test_preds = np.concatenate([test_preds, preds])
                     setup_score = roc_auc_score(test_df['correct'], test_preds)
                     print(setup_score)
-                    logger.log_scalars({'test auc': setup_score}, step=0)
+                    logger.log_scalars({'auc/test': setup_score}, step=logger.step)
                     exp_ind = rand_seed + 1
                     setup_page.loc[setup_index, 'test{}'.format(exp_ind)] = setup_score
                     setup_page.loc[setup_index, 'valid{}'.format(exp_ind)] = saver.score_max
                     setup_page.loc[setup_index, 'best_epoch'] = saver.best_epoch
-                    # setup_page.loc[setup_index, 'train{}'.format(exp_ind)] = saver.other_info['auc/train']
 
                     setup_page.to_excel(save_path.replace('setups/', 'results/'))
                     setup_page.to_excel(save_path)
-
                 logger.close()
+                del logger
                 del model
 
         except Exception as e:

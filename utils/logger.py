@@ -17,7 +17,7 @@ class Logger:
             pass
 
         if project_name is not None:
-            wandb.init(project=project_name, name=run_name, config=model_args)
+            wandb.init(project=project_name, name=run_name, config=model_args, reinit=True)
             print('wandb init')
             self.wandb = True
         else:
@@ -25,11 +25,13 @@ class Logger:
 
         self.verbose = verbose
         self.writer = SummaryWriter(logdir)
+        self.step = 0
 
     def log_histograms(self, dic, step):
         """Log dictionary of tensors as histograms. """
         for k, v in dic.items():
             self.writer.add_histogram(k, v, step)
+        self.step = step
 
     def log_scalars(self, dic, step):
         """Log dictionary of scalar values. """
@@ -40,6 +42,8 @@ class Logger:
 
         if self.verbose:
             print(f"Step {step}, {dic}")
+
+        self.step = step
 
     def close(self):
         self.writer.close()
