@@ -218,7 +218,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--logdir", type=str, default="runs/dkt1")
     parser.add_argument("--savedir", type=str, default="save/dkt1")
-    parser.add_argument("--gpus", type=str, default="4,5,6,7")
+    parser.add_argument("--gpus", type=str, default="0,1")
     parser.add_argument(
         "--item_in",
         action="store_true",
@@ -249,8 +249,8 @@ if __name__ == "__main__":
         help="If True, train a separate model for every skill.",
         default=False,
     )
-    parser.add_argument("--hid_size", type=int, default=100)
-    parser.add_argument("--num_hid_layers", type=int, default=2)
+    parser.add_argument("--hid_size", type=int, default=50)
+    parser.add_argument("--num_hid_layers", type=int, default=1)
     parser.add_argument("--drop_prob", type=float, default=0.5)
     parser.add_argument("--batch_size", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.01)
@@ -303,7 +303,11 @@ if __name__ == "__main__":
         args.skill_in,
         args.item_out,
         args.skill_out,
-    ).cuda()
+    )
+    if torch.cuda.device_count() > 1:
+        print('using {} GPUs'.format(torch.cuda.device_count()))
+        model = nn.DataParallel(model)
+    model.to(torch.device("cuda"))
     optimizer = Adam(model.parameters(), lr=args.lr)
 
     print_args(args)

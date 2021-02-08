@@ -241,30 +241,37 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Encode sparse feature matrix for logistic regression."
     )
-    parser.add_argument("--dataset", type=str)
+    parser.add_argument("--dataset", type=str, default='spanish')
     parser.add_argument(
         "-u", action="store_true", help="If True, include user one hot encoding."
     )
     parser.add_argument(
-        "-i", action="store_true", help="If True, include item one hot encoding."
+        "-i", action="store_true", default=True,
+        help="If True, include item one hot encoding."
     )
     parser.add_argument(
-        "-s", action="store_true", help="If True, include skills many hot encoding ."
+        "-s", action="store_true", default=True,
+        help="If True, include skills many hot encoding ."
     )
     parser.add_argument(
-        "-ic", action="store_true", help="If True, include item historical counts."
+        "-ic", action="store_true", default=True,
+        help="If True, include item historical counts."
     )
     parser.add_argument(
-        "-sc", action="store_true", help="If True, include skills historical counts."
+        "-sc", action="store_true", default=True,
+        help="If True, include skills historical counts."
     )
     parser.add_argument(
-        "-tc", action="store_true", help="If True, include total historical counts."
+        "-tc", action="store_true", default=True,
+        help="If True, include total historical counts."
     )
     parser.add_argument(
-        "-w", action="store_true", help="If True, historical counts include wins."
+        "-w", action="store_true", default=True,
+        help="If True, historical counts include wins."
     )
     parser.add_argument(
-        "-a", action="store_true", help="If True, historical counts include attempts."
+        "-a", action="store_true", default=True,
+        help="If True, historical counts include attempts."
     )
     parser.add_argument(
         "-tw",

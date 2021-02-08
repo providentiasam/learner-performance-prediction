@@ -104,17 +104,16 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str or bool, default='ednet_medium')
-    parser.add_argument('--gpus', type=str, default='5,6,7')
-    parser.add_argument('--xlsx_setup', type=bool, default=True)
+    parser.add_argument('--setup', type=str or bool, default='ednet')
+    parser.add_argument('--gpus', type=str, default='4,5,6')
     args_ = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
-    DEBUGGING = False
+    DEBUGGING = True
     REPEAT = 1
     if DEBUGGING:
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
-            'dataset': 'ednet_medium',
+            'dataset': 'ednet_small',
             'num_attn_layers': 3,
             'max_length': 400,
             'embed_size': 64,
@@ -128,9 +127,8 @@ if __name__ == "__main__":
     elif args_.setup:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
         setup_page = pd.read_excel(setup_path)
-        if 1:
-            if 'dataset' not in setup_page.columns:
-                setup_page['dataset'] = args_.setup
+        if 'dataset' not in setup_page.columns:
+            setup_page['dataset'] = args_.setup
     else:
         setup_path = './setups/sakt_{}.xlsx'.format(str(pd.datetime.now()).split('.')[0])
         setup_products = {
@@ -189,7 +187,7 @@ if __name__ == "__main__":
                 while True: # Reduce batch size until it fits on GPU
                     try:    
                         optimizer = 'adam' if 'optimizer' not in args.index else args['optimizer']
-                        saver = Saver(args.savedir, param_str, patience=7 if dataset not in {'ednet', 'ednet_medium'} else 20)
+                        saver = Saver(args.savedir, param_str, patience=10 if dataset in {'ednet', 'ednet_medium'} else 7)
                         train(train_data, val_data, model, optimizer, logger, saver, int(args.num_epochs),
                                 int(args.batch_size), args.grad_clip)
                         logger.log_scalars({'adj_batch_size': args.batch_size}, step=logger.step)

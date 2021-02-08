@@ -38,11 +38,11 @@ class Saver:
                 self.best_epoch = epoch
             if other_info is not None:
                 self.other_info = other_info
-            torch.save(network, self.path)
+            torch.save(network.cpu(), self.path)
             self.counter = 0
 
         stop = self.counter >= self.patience
         return stop
 
-    def load(self):
-        return torch.load(self.path)
+    def load(self, **kwargs):
+        return torch.load(self.path, **kwargs)

@@ -3,6 +3,7 @@ import numpy as np
 from random import shuffle
 from torch.nn.utils.rnn import pad_sequence
 from sklearn.metrics import roc_auc_score, accuracy_score
+from tqdm import tqdm
 
 
 def get_dkt1_preds(preds, item_ids, skill_ids, labels):
@@ -140,7 +141,7 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
     lists = (item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
     chunked_lists = [chunk(l, stride) for l in lists]
     if non_overlap_only:
-        non_overlap_from = [y for x in labels for y in \
+        non_overlap_from = [y for x in tqdm(labels, ascii=True, desc='Infrence Mask') for y in \
                             window_split(x, window_size=max_length, stride=stride, return_nonoverlap=True)]
         # chunked_lists.append([y for x in item_inputs for y in window_split(x, max_length, stride)[1]])
         non_overlap_labels = []
@@ -173,7 +174,7 @@ def prepare_batches(data, batch_size, randomize=True):
         shuffle(data)
     batches = []
 
-    for k in range(0, len(data), batch_size):
+    for k in tqdm(range(0, len(data), batch_size), ascii=True, desc="Batch Preparation"):
         batch = data[k: k + batch_size]
         seq_lists = list(zip(*batch))
         inputs_and_ids = [
@@ -216,7 +217,7 @@ def eval_batches(model, batches, device='cpu', model_name=None):
             item_ids,
             skill_ids,
             labels,
-    ) in batches:
+    ) in tqdm(batches, ascii=True, desc='Batch Progress'):
         with torch.no_grad():
 
             if model_name is not None and model_name=='dkt1':
@@ -240,5 +241,5 @@ def eval_batches(model, batches, device='cpu', model_name=None):
                 preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
                 preds = torch.sigmoid(preds[labels >= 0]).flatten().cpu().numpy()
             test_preds = np.concatenate([test_preds, preds])
-    print(test_preds.size)
+
     return test_preds
