@@ -21,6 +21,7 @@ from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 
 DEVICE = 'cuda'
+FIX_SUBTWO = False
 
 class InteractionDataset(torch.utils.data.Dataset):
     def __init__(self, uid2sequence, seq_len=100, stride=50, \
@@ -62,7 +63,7 @@ class InteractionDataset(torch.utils.data.Dataset):
 
         features = {
             "qid": [q + 1 for q in features["item_id"][start_idx:end_idx]] + pad,
-            "is_correct": [2 - c for c in features["correct"][start_idx:end_idx]] + pad,
+            "is_correct": [((2 - c) if not FIX_SUBTWO else c) for c in features["correct"][start_idx:end_idx]] + pad,
             "skill": [s + 1 for s in features["skill_id"][start_idx:end_idx]] + pad,
             "pad_mask": pad_mask,
         }
@@ -308,7 +309,7 @@ class SAINT(pl.LightningModule):
 
         prediction = self.generator(transformer_output).squeeze(-1)  # (B, L)
         y = batch_dict["is_correct"].float().to(device)
-        ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), 2 - y)  # (B, L)
+        ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), (2 - y) if not FIX_SUBTWO else y)  # (B, L)
 
         results = {
             "loss": ce_loss,
@@ -334,7 +335,6 @@ class SAINT(pl.LightningModule):
             "frequency": 1,
         }
         return [optimizer], [scheduler]
-        return optimizer
 
     def training_step(self, train_batch, batch_idx):
         train_res = self.compute_all_losses(train_batch)
@@ -347,7 +347,9 @@ class SAINT(pl.LightningModule):
         # ):
         #     # wandb log
         #     wandb.log({"Train loss": loss.item()}, step=self.global_step)
-        return {"loss": loss}
+        
+        # return {"loss": loss.mean()}
+        return loss
 
     def training_epoch_end(self, training_step_outputs):
         # summarize train epoch results
@@ -361,7 +363,7 @@ class SAINT(pl.LightningModule):
         val_res = self.compute_all_losses(val_batch)
         loss = val_res["loss"]  # (B, L)
         pred = val_res["pred"]
-        label = 2 - val_batch["is_correct"]
+        label = (2 - val_batch["is_correct"]) if not FIX_SUBTWO else val_batch["is_correct"]
 
         infer_mask = val_batch["infer_mask"]
         loss = torch.sum(loss * infer_mask) / torch.sum(infer_mask)
@@ -384,10 +386,9 @@ class SAINT(pl.LightningModule):
         labels = torch.cat(labels, dim=0).view(-1)
         epoch_loss = sum(losses) / len(losses)
         epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
-
-        print(
-            f"Val loss: {epoch_loss:.4f}, auc: {epoch_auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
-        )
+        # print(
+        #     f"Val loss: {epoch_loss.mean():.4f}, auc: {epoch_auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
+        # )
         if epoch_auc > self.best_val_auc:
             self.best_val_auc = epoch_auc
             self.best_step = self.global_step
@@ -413,7 +414,7 @@ class SAINT(pl.LightningModule):
         test_res = self.compute_all_losses(test_batch)
         loss = test_res["loss"]  # (B, L)
         pred = test_res["pred"]
-        label = 2 - test_batch["is_correct"]
+        label = (2 - test_batch["is_correct"]) if not FIX_SUBTWO else test_batch["is_correct"]
 
         infer_mask = test_batch["infer_mask"]
         loss = torch.sum(loss * infer_mask) / torch.sum(infer_mask)
@@ -433,8 +434,9 @@ class SAINT(pl.LightningModule):
 
         preds = torch.cat(preds, dim=0).view(-1)
         labels = torch.cat(labels, dim=0).view(-1)
-        epoch_loss = sum(losses) / len(losses)
+        epoch_loss = (sum(losses) / len(losses)).mean()
         epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
+
         print(f"Test loss: {epoch_loss:.4f}, auc: {epoch_auc:.4f}")
         self.test_auc = epoch_auc
         if self.config.use_wandb:
@@ -457,17 +459,24 @@ def str2bool(val):
     return ret
 
 
-def predict_saint(saint_model, dataloader):
+def predict_saint(saint_model, dataloader, return_labels=False):
     preds = []
+    labels = []
     for batch in tqdm(dataloader, desc='Batch Processing'):
         test_res = saint_model.compute_all_losses(batch)
         pred = test_res["pred"]
         infer_mask = batch["infer_mask"]
         nonzeros = torch.nonzero(infer_mask, as_tuple=True)
+        label = (2 - batch["is_correct"]) if not FIX_SUBTWO else batch["is_correct"]
+        labels.append(label[nonzeros])
         pred = pred[nonzeros].sigmoid()
         preds.append(pred)
     preds = torch.cat(preds, dim=0).view(-1)
-    return preds
+    if not return_labels:
+        return preds
+    else:
+        labels = torch.cat(labels, dim=0).view(-1)
+        return preds, labels
 
 
 def print_args(args):
@@ -485,9 +494,9 @@ if __name__ == "__main__":
     parser.add_argument("--name", type=str, default='saint')
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_epochs", type=int, default=1)
+    parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--train_batch", type=int, default=64)
-    parser.add_argument("--test_batch", type=int, default=64)
+    parser.add_argument("--test_batch", type=int, default=256)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--eval_steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.003)
@@ -498,9 +507,9 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_step", type=int, default=200)
     parser.add_argument("--dim_model", type=int, default=64)
     parser.add_argument("--dim_ff", type=int, default=256)
-    parser.add_argument("--seq_len", type=int, default=200)
+    parser.add_argument("--seq_len", type=int, default=100)
     parser.add_argument("--dropout_rate", type=float, default=0.2)
-    parser.add_argument("--dataset", type=str, default="ednet_medium")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--patience", type=int, default=30)
     # for debugging
     parser.add_argument("--limit_train_batches", type=float, default=1.0)
@@ -544,7 +553,7 @@ if __name__ == "__main__":
     checkpoint_callback = ModelCheckpoint(
         monitor="val_auc",
         dirpath=f"save/saint/{args.dataset}",
-        filename="{val_auc:.4f}",
+        # filename=f"{args.name}",
         mode="max",
     )
     early_stopping = EarlyStopping(
@@ -554,8 +563,8 @@ if __name__ == "__main__":
     )
     trainer = pl.Trainer(
         gpus=args.gpu,
-        accelerator='ddp',
-        auto_select_gpus=True,
+        accelerator='dp',
+        # auto_select_gpus=True,
         callbacks=[checkpoint_callback, early_stopping],
         max_epochs=args.num_epochs,
         val_check_interval=args.val_check_interval,
@@ -578,49 +587,54 @@ if __name__ == "__main__":
     model = SAINT.load_from_checkpoint(checkpoint_path, config=args)
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
+    model.eval()
     trainer.test(model=model, datamodule=datamodule)
     test_auc = trainer.callback_metrics["test_auc"]
+    model.eval()
+    preds, labels = predict_saint(saint_model=model, dataloader=datamodule.test_gen, return_labels=True)
+    print(roc_auc_score(labels.cpu(), preds.cpu()))
 
-    # log results
-    result_path = f"results/saint_{args.dataset}.csv"
-    column_names = [
-        "experiment_time",
-        "train_batch",
-        "val_check_interval",
-        "lr",
-        "warmup_step",
-        "dropout_rate",
-        "layer_count",
-        "head_count",
-        "dim_model",
-        "dim_ff",
-        "seq_len",
-        "best_val_auc",
-        "best_step",
-        "test_auc",
-    ]
-    if not os.path.exists(result_path):
-        # initialize result dataframe
-        df = pd.DataFrame(columns=column_names)
-        df.to_csv(result_path, index=False, header=True)
+    if 0:
+        # log results
+        result_path = f"results/saint_{args.dataset}.csv"
+        column_names = [
+            "experiment_time",
+            "train_batch",
+            "val_check_interval",
+            "lr",
+            "warmup_step",
+            "dropout_rate",
+            "layer_count",
+            "head_count",
+            "dim_model",
+            "dim_ff",
+            "seq_len",
+            "best_val_auc",
+            "best_step",
+            "test_auc",
+        ]
+        if not os.path.exists(result_path):
+            # initialize result dataframe
+            df = pd.DataFrame(columns=column_names)
+            df.to_csv(result_path, index=False, header=True)
 
-    base_df = pd.read_csv(result_path)
-    current_time = datetime.now()
-    result_df = pd.DataFrame.from_dict([{
-        "experiment_time": current_time,
-        "train_batch": args.train_batch,
-        "val_check_interval": args.val_check_interval,
-        "lr": args.lr,
-        "warmup_step": args.warmup_step,
-        "dropout_rate": args.dropout_rate,
-        "layer_count": args.layer_count,
-        "head_count": args.head_count,
-        "dim_model": args.dim_model,
-        "dim_ff": args.dim_ff,
-        "seq_len": args.seq_len,
-        "best_val_auc": best_val_auc,
-        "best_step": best_step,
-        "test_auc": test_auc,
-    }])
-    base_df = base_df.append(result_df)
-    base_df.to_csv(result_path, index=False, header=True)
+        base_df = pd.read_csv(result_path)
+        current_time = datetime.now()
+        result_df = pd.DataFrame.from_dict([{
+            "experiment_time": current_time,
+            "train_batch": args.train_batch,
+            "val_check_interval": args.val_check_interval,
+            "lr": args.lr,
+            "warmup_step": args.warmup_step,
+            "dropout_rate": args.dropout_rate,
+            "layer_count": args.layer_count,
+            "head_count": args.head_count,
+            "dim_model": args.dim_model,
+            "dim_ff": args.dim_ff,
+            "seq_len": args.seq_len,
+            "best_val_auc": best_val_auc,
+            "best_step": best_step,
+            "test_auc": test_auc,
+        }])
+        base_df = base_df.append(result_df)
+        base_df.to_csv(result_path, index=False, header=True)
