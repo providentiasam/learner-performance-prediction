@@ -88,27 +88,26 @@ class InteractionDataset(torch.utils.data.Dataset):
 def get_data(dataset, overwrite_test_df=None):
     data = {}
     modes = ["train", "val", "test"]
-    if dataset in ["ednet"]:
+    if dataset in []:
         for mode in modes:
             with open(f"data/{dataset}/{mode}_data.pkl", "rb") as file:
                 data[mode] = pkl.load(file)
     else:
-        train_df = pd.read_csv(
-            os.path.join("data", dataset, "preprocessed_data_train.csv"), sep="\t"
-        )
         if overwrite_test_df is not None:
             test_df = overwrite_test_df
         else:
             test_df = pd.read_csv(
                 os.path.join("data", dataset, "preprocessed_data_test.csv"), sep="\t"
             )
-
         data = {mode: {} for mode in modes}
         for (uid, _data) in tqdm(test_df.groupby("user_id"), desc='Prepare Test'):
             seqs = _data.to_dict()
             del seqs["user_id"], seqs["timestamp"]
             data["test"][uid] = {key: list(x.values()) for key, x in seqs.items()}
+
         if overwrite_test_df is None:
+            train_df = pd.read_csv(
+                os.path.join("data", dataset, "preprocessed_data_train.csv"), sep="\t")
             train_val = {}
             for (uid, _data) in tqdm(train_df.groupby("user_id"), desc='Prepare Train/Valid'):
                 seqs = _data.to_dict()
@@ -127,7 +126,7 @@ def get_data(dataset, overwrite_test_df=None):
 
 
 class DataModule(pl.LightningDataModule):
-    def __init__(self, config, overwrite_test_df=None, last_one_only=False):
+    def __init__(self, config, overwrite_test_df=None, last_one_only=False, overwrite_test_batch=None):
         super().__init__()
         self.data = get_data(config.dataset, overwrite_test_df=overwrite_test_df)
         if overwrite_test_df is None:
@@ -156,7 +155,9 @@ class DataModule(pl.LightningDataModule):
         self.test_gen = torch.utils.data.DataLoader(
             dataset=test_data,
             shuffle=False,
-            batch_size=config.test_batch,
+            batch_size=config.test_batch \
+                if overwrite_test_batch is None \
+                else overwrite_test_batch,
             num_workers=config.num_workers,
         )
 
@@ -240,6 +241,8 @@ class SAINT(pl.LightningModule):
         self.best_val_auc = 0
         self.best_step = -1
         self.test_auc = 0
+        self.preds = []
+        self.labels = []
 
         # xavier initialization
         for param in self.parameters():
@@ -384,11 +387,11 @@ class SAINT(pl.LightningModule):
 
         preds = torch.cat(preds, dim=0).view(-1)
         labels = torch.cat(labels, dim=0).view(-1)
-        epoch_loss = sum(losses) / len(losses)
+        epoch_loss = (sum(losses) / len(losses)).mean()
         epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
-        # print(
-        #     f"Val loss: {epoch_loss.mean():.4f}, auc: {epoch_auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
-        # )
+        print(
+            f"Val loss: {epoch_loss.mean():.4f}, auc: {epoch_auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
+        )
         if epoch_auc > self.best_val_auc:
             self.best_val_auc = epoch_auc
             self.best_step = self.global_step
@@ -434,6 +437,8 @@ class SAINT(pl.LightningModule):
 
         preds = torch.cat(preds, dim=0).view(-1)
         labels = torch.cat(labels, dim=0).view(-1)
+        self.preds.append(preds.cpu())
+        self.labels.append(labels.cpu())
         epoch_loss = (sum(losses) / len(losses)).mean()
         epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
 
@@ -489,18 +494,18 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--use_wandb", action="store_true", default=False)
-    parser.add_argument("--project", type=str, default='bt_saint')
+    parser.add_argument("--use_wandb", action="store_true", default=True)
+    parser.add_argument("--project", type=str, default='bt_saint_dist')
     parser.add_argument("--name", type=str, default='saint')
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_epochs", type=int, default=2)
+    parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--train_batch", type=int, default=64)
-    parser.add_argument("--test_batch", type=int, default=256)
+    parser.add_argument("--test_batch", type=int, default=128)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--eval_steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.003)
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
+    parser.add_argument("--gpu", type=str, default="4,5")
     parser.add_argument("--device", type=str, default="gpu")
     parser.add_argument("--layer_count", type=int, default=2)
     parser.add_argument("--head_count", type=int, default=16)
@@ -508,9 +513,10 @@ if __name__ == "__main__":
     parser.add_argument("--dim_model", type=int, default=64)
     parser.add_argument("--dim_ff", type=int, default=256)
     parser.add_argument("--seq_len", type=int, default=100)
-    parser.add_argument("--dropout_rate", type=float, default=0.2)
+    parser.add_argument("--dropout_rate", type=float, default=0.1)
     parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--patience", type=int, default=30)
+    parser.add_argument("--accel", type=str, default='dp')
     # for debugging
     parser.add_argument("--limit_train_batches", type=float, default=1.0)
     parser.add_argument("--limit_val_batches", type=float, default=1.0)
@@ -553,7 +559,7 @@ if __name__ == "__main__":
     checkpoint_callback = ModelCheckpoint(
         monitor="val_auc",
         dirpath=f"save/saint/{args.dataset}",
-        # filename=f"{args.name}",
+        filename=f"{args.name}",
         mode="max",
     )
     early_stopping = EarlyStopping(
@@ -563,7 +569,7 @@ if __name__ == "__main__":
     )
     trainer = pl.Trainer(
         gpus=args.gpu,
-        accelerator='dp',
+        accelerator=args.accel,
         auto_select_gpus=True,
         callbacks=[checkpoint_callback, early_stopping],
         max_epochs=args.num_epochs,

@@ -31,16 +31,17 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="ednet")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="saint")
     parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="temp")
-    parser.add_argument("--gpu", type=str, default="4")
+    parser.add_argument("--filename", type=str, default="best")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
-
+    if args.model == 'saint':
+        wandb.init(project='bt_{}'.format(args.model), name=args.model, config=args)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # 1. LOAD DATA + PRE-TRAINED MODEL - {SAINT, DKT, BESTLR, SAKT}
@@ -113,8 +114,15 @@ if __name__ == "__main__":
     # Out: bt_test_df with 'model_pred' column.
     if args.model == 'saint':
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
-            last_one_only=last_one_only)
-        bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
+            last_one_only=last_one_only, overwrite_test_batch=4096)
+        if 0:  # no multi-gpu
+            bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
+        else:  # use multi-gpu: dp only
+            trainer = pl.Trainer(
+                gpus=len(args.gpu.split(',')), accelerator='dp',
+                auto_select_gpus=True, callbacks=[], max_steps=0)
+            trainer.test(model=model, datamodule=datamodule)
+            bt_test_preds = model.preds[0]
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
         bt_test_df['model_pred'] = bt_test_preds.cpu()
