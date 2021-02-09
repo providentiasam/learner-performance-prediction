@@ -107,29 +107,17 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
         max_length (int): maximum length of a sequence chunk
         train_split (float): proportion of data to use for training
     """
-    item_ids = [  # add 1 for start token
-        torch.tensor(u_df["item_id"].values + 1, dtype=torch.long)
-        for _, u_df in df.groupby("user_id")
-    ]
-    skill_ids = [  # add 1 for start token
-        torch.tensor(u_df["skill_id"].values + 1, dtype=torch.long)
-        for _, u_df in df.groupby("user_id")
-    ]
-    labels = [
-        torch.tensor(u_df["correct"].values, dtype=torch.long)
-        for _, u_df in df.groupby("user_id")
-    ]
-    stride = max_length if stride is None else stride
+    item_ids, skill_ids, labels = [], [], []
+    item_inputs, skill_inputs, label_inputs = [], [], []
+    for _, u_df in tqdm(df.groupby("user_id"), ascii=True, desc='User-wise Seq'):
+        item_ids.append(torch.tensor(u_df['item_id'].values + 1, dtype=torch.long))
+        skill_ids.append(torch.tensor(u_df['skill_id'].values + 1, dtype=torch.long))
+        labels.append(torch.tensor(u_df['correct'].values, dtype=torch.long))
+        item_inputs.append(torch.cat((torch.zeros(1, dtype=torch.long), item_ids[-1]))[:-1])
+        skill_inputs.append(torch.cat((torch.zeros(1, dtype=torch.long), skill_ids[-1]))[:-1])
+        label_inputs.append(torch.cat((torch.zeros(1, dtype=torch.long), labels[-1]))[:-1])
 
-    item_inputs = [  # shift for key / value inputs
-        torch.cat((torch.zeros(1, dtype=torch.long), i))[:-1] for i in item_ids
-    ]
-    skill_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), s))[:-1] for s in skill_ids
-    ]
-    label_inputs = [
-        torch.cat((torch.zeros(1, dtype=torch.long), l))[:-1] for l in labels
-    ]
+    stride = max_length if stride is None else stride
 
     def chunk(list, stride):
         if list[0] is None:

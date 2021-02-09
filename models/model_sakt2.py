@@ -119,6 +119,7 @@ class SAKT(nn.Module):
             )
         if self.query_feed:
             attn_output = attn_output + query
+        attn_output = self.layer_norms[0](attn_output)
         outputs = self.dropouts[0](attn_output)
 
         for i, l in enumerate(self.attn_layers[1:]):
@@ -131,6 +132,6 @@ class SAKT(nn.Module):
                 self.pos_value_embeds,
                 mask,
             )
-            outputs = self.dropouts[i + 1](outputs + F.relu(residual))
+            outputs = self.dropouts[i + 1](self.layer_norms[i+1](outputs + F.relu(residual)))
 
         return self.lin_out(outputs)

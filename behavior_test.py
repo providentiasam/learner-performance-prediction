@@ -22,7 +22,7 @@ from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary_perturb_em_sakt.csv'
+SUMMARY_PATH = './summary_ednet.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -31,13 +31,13 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet")
+    parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
-    parser.add_argument("--test_type", type=str, default="original")
+        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="saint")
+    parser.add_argument("--test_type", type=str, default="insertion")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="best")
-    parser.add_argument("--gpu", type=str, default="2,3,4,5")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
 
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     test_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
     ) # Original Test-split DataFrame
-    print('Data Loaded')
+    print('Data Loaded', test_df.shape[0])
     if model_seq_len is not None:
         test_df = test_df.groupby('user_id').head(model_seq_len).reset_index(drop=True)
 
@@ -110,9 +110,8 @@ if __name__ == "__main__":
     # 3. FEED TEST DATA.
     # In: bt_test_df
     # Out: bt_test_df with 'model_pred' column.
-    bt_test_path = os.path.join("data", args.dataset, "bt_{}.csv".format(args.test_type))
-    original_test_df = bt_test_df.copy()
-    original_test_df.to_csv(bt_test_path)
+    if 0:
+        bt_test_path = os.path.join("data", args.dataset, "bt_{}.csv".format(args.test_type))
     if args.model == 'saint':
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
             last_one_only=last_one_only)
@@ -123,14 +122,13 @@ if __name__ == "__main__":
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
         if args.model == 'sakt': 
-            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=500, \
-                train_split=1.0, stride=10)
+            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=100, \
+                train_split=1.0, stride=3)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
-        bt_test_batch = prepare_batches(bt_test_data, 50, False)
+        bt_test_batch = prepare_batches(bt_test_data, 128, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', model_name=args.model)
         bt_test_df['model_pred'] = bt_test_preds
-        # bt_test_df['model_pred'] = np.random.randn(len(bt_test_df))
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
 

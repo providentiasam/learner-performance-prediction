@@ -104,11 +104,11 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str or bool, default='ednet')
-    parser.add_argument('--gpus', type=str, default='4,5,6')
+    parser.add_argument('--setup', type=str or bool, default=False)
+    parser.add_argument('--gpus', type=str, default='1,2,3')
     args_ = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
-    DEBUGGING = True
+    DEBUGGING = False
     REPEAT = 1
     if DEBUGGING:
         setup_path = './setups/sakt_loop_test.xlsx'
@@ -132,17 +132,17 @@ if __name__ == "__main__":
     else:
         setup_path = './setups/sakt_{}.xlsx'.format(str(pd.datetime.now()).split('.')[0])
         setup_products = {
-            'dataset': ['assistments15'],
-            'num_attn_layers': [2, 3],
-            'max_length': [200, 400],
-            'embed_size': [32, 64],
-            'num_heads': [4, 16, 32],
-            'drop_prob': [0.25, 0.5],
-            'optimizer': ['adam'],
-            'lr': [0.001, 0.003],
-            'encode_pos': [1], 'max_pos': [10], 'batch_size': [600], 
+            'dataset': ['ednet_medium'],
+            'num_attn_layers': [3],
+            'max_length': [400],
+            'embed_size': [64],
+            'num_heads': [16],
+            'drop_prob': [0.25],
+            'optimizer': ['noam'],
+            'lr': [0.003],
+            'encode_pos': [1], 'max_pos': [10], 'batch_size': [150], 
             'grad_clip': [10], 'num_epochs': [100], 'repeat': [REPEAT], 'stride': [50],
-            'query_feed': [True, False]
+            'query_feed': [False], 'query_highpass': [False]
         }
         setup_page = pd.DataFrame(list(itertools.product(*[y for _, y in setup_products.items()])))
         setup_page.columns = setup_products.keys()

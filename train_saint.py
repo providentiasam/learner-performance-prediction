@@ -35,7 +35,7 @@ class InteractionDataset(torch.utils.data.Dataset):
         # TODO: Resolve above two variables into a single test_mode variable.
         self.uid2sequence = uid2sequence
         self.sample_list = []
-        for uid, seq in tqdm(self.uid2sequence.items()):
+        for uid, seq in tqdm(self.uid2sequence.items(), desc='User-wise Seq Chunking'):
             num_inter = len(seq["item_id"])
             if self.last_max_seq_only:
                 self.sample_list.append((uid, max(0, num_inter - self.seq_len), num_inter))
@@ -87,7 +87,7 @@ class InteractionDataset(torch.utils.data.Dataset):
 def get_data(dataset, overwrite_test_df=None):
     data = {}
     modes = ["train", "val", "test"]
-    if dataset in ["ednet", "ednet_medium"]:
+    if dataset in ["ednet"]:
         for mode in modes:
             with open(f"data/{dataset}/{mode}_data.pkl", "rb") as file:
                 data[mode] = pkl.load(file)
@@ -103,13 +103,13 @@ def get_data(dataset, overwrite_test_df=None):
             )
 
         data = {mode: {} for mode in modes}
-        for (uid, _data) in tqdm(test_df.groupby("user_id")):
+        for (uid, _data) in tqdm(test_df.groupby("user_id"), desc='Prepare Test'):
             seqs = _data.to_dict()
             del seqs["user_id"], seqs["timestamp"]
             data["test"][uid] = {key: list(x.values()) for key, x in seqs.items()}
         if overwrite_test_df is None:
             train_val = {}
-            for (uid, _data) in tqdm(train_df.groupby("user_id")):
+            for (uid, _data) in tqdm(train_df.groupby("user_id"), desc='Prepare Train/Valid'):
                 seqs = _data.to_dict()
                 del seqs["user_id"], seqs["timestamp"]
                 train_val[uid] = {key: list(x.values()) for key, x in seqs.items()}
@@ -446,50 +446,6 @@ class SAINT(pl.LightningModule):
             "test_auc": epoch_auc
         }
         
-    def _log_final_results(self):
-        result_path = f"results/saint_{args.dataset}.csv"
-        column_names = [
-            "experiment_time",
-            "train_batch",
-            "val_check_interval",
-            "lr",
-            "warmup_step",
-            "dropout_rate",
-            "layer_count",
-            "head_count",
-            "dim_model",
-            "dim_ff",
-            "seq_len",
-            "best_val_auc",
-            "best_step",
-            "test_auc",
-        ]
-        if not os.path.exists(result_path):
-            # initialize result dataframe
-            df = pd.DataFrame(columns=column_names)
-            df.to_csv(result_path, index=False, header=True)
-
-        base_df = pd.read_csv(result_path)
-        current_time = datetime.now()
-        result_df = pd.DataFrame.from_dict([{
-            "experiment_time": current_time,
-            "train_batch": self.config.train_batch,
-            "val_check_interval": self.config.val_check_interval,
-            "lr": self.config.lr,
-            "warmup_step": self.config.warmup_step,
-            "dropout_rate": self.config.dropout_rate,
-            "layer_count": self.config.layer_count,
-            "head_count": self.config.head_count,
-            "dim_model": self.config.dim_model,
-            "dim_ff": self.config.dim_ff,
-            "seq_len": self.config.seq_len,
-            "best_val_auc": self.best_val_auc,
-            "best_step": self.best_step,
-            "test_auc": epoch_auc,
-        }])
-        base_df = base_df.append(result_df)
-        base_df.to_csv(result_path, index=False, header=True)
-
 
 def str2bool(val):
     if val.lower() in ("yes", "true", "t", "y", "1"):
@@ -503,7 +459,7 @@ def str2bool(val):
 
 def predict_saint(saint_model, dataloader):
     preds = []
-    for batch in tqdm(dataloader):
+    for batch in tqdm(dataloader, desc='Batch Processing'):
         test_res = saint_model.compute_all_losses(batch)
         pred = test_res["pred"]
         infer_mask = batch["infer_mask"]
@@ -525,26 +481,26 @@ def print_args(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=False)
-    parser.add_argument("--project", type=str, default='rebenchmark')
+    parser.add_argument("--project", type=str, default='bt_saint')
     parser.add_argument("--name", type=str, default='saint')
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_epochs", type=int, default=10)
+    parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--train_batch", type=int, default=64)
     parser.add_argument("--test_batch", type=int, default=64)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--eval_steps", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--gpu", type=str, default="0")
+    parser.add_argument("--lr", type=float, default=0.003)
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--device", type=str, default="gpu")
     parser.add_argument("--layer_count", type=int, default=2)
-    parser.add_argument("--head_count", type=int, default=8)
-    parser.add_argument("--warmup_step", type=int, default=4000)
+    parser.add_argument("--head_count", type=int, default=16)
+    parser.add_argument("--warmup_step", type=int, default=200)
     parser.add_argument("--dim_model", type=int, default=64)
     parser.add_argument("--dim_ff", type=int, default=256)
-    parser.add_argument("--seq_len", type=int, default=150)
+    parser.add_argument("--seq_len", type=int, default=200)
     parser.add_argument("--dropout_rate", type=float, default=0.2)
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--patience", type=int, default=30)
     # for debugging
     parser.add_argument("--limit_train_batches", type=float, default=1.0)
@@ -554,9 +510,10 @@ if __name__ == "__main__":
 
     # parse gpus
     if args.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
         args.device = "cuda"
         args.gpu = [
-            int(g) for g in args.gpu.split(",")
+            int(g) for g in range(len(args.gpu.split(',')))
         ]  # doesn't support multi-gpu yet
     else:
         args.device = "cpu"
@@ -598,6 +555,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         gpus=args.gpu,
         accelerator='ddp',
+        auto_select_gpus=True,
         callbacks=[checkpoint_callback, early_stopping],
         max_epochs=args.num_epochs,
         val_check_interval=args.val_check_interval,
