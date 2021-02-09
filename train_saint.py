@@ -564,7 +564,7 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         gpus=args.gpu,
         accelerator='dp',
-        # auto_select_gpus=True,
+        auto_select_gpus=True,
         callbacks=[checkpoint_callback, early_stopping],
         max_epochs=args.num_epochs,
         val_check_interval=args.val_check_interval,
