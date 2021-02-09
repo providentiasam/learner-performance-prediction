@@ -22,7 +22,7 @@ from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary_ednet.csv'
+SUMMARY_PATH = './summary_qp3.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -31,13 +31,13 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet_medium")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="saint")
-    parser.add_argument("--test_type", type=str, default="insertion")
+    parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="best")
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
+    parser.add_argument("--filename", type=str, default="temp")
+    parser.add_argument("--gpu", type=str, default="4")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
 
@@ -61,9 +61,10 @@ if __name__ == "__main__":
         model_seq_len = {'statics': 200, 'spanish': 200, \
             'ednet_small': 100, 'assistments15': 100, 'assistments17': 100,\
                 'ednet_medium': 100, 'ednet': 100}[args.dataset]
-        if args.test_type == 'original':
-            model_seq_len = None
         model_config = argparse.Namespace(**{})
+
+    if args.test_type == 'original':
+        model_seq_len = None
 
     test_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
@@ -110,13 +111,10 @@ if __name__ == "__main__":
     # 3. FEED TEST DATA.
     # In: bt_test_df
     # Out: bt_test_df with 'model_pred' column.
-    if 0:
-        bt_test_path = os.path.join("data", args.dataset, "bt_{}.csv".format(args.test_type))
     if args.model == 'saint':
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
             last_one_only=last_one_only)
-        trainer = pl.Trainer(auto_select_gpus=True, callbacks=[], max_steps=0)
-        bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_dataloader())
+        bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
         bt_test_df['model_pred'] = bt_test_preds.cpu()
@@ -160,7 +158,10 @@ if __name__ == "__main__":
     #6. APPEND SUMMARY.
     metric_df = pd.concat([y for _, y in result_dict.items()], axis=0, keys=result_dict.keys())
     metric_df.index.names = ['group_by', 'group_tag']
-    metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
+    try:
+        metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
+    except Exception as e:
+        pass
     for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
         metric_df[var] = vars(args)[var]
     metric_df['time'] = str(pd.datetime.now()).split('.')[0]

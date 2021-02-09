@@ -40,8 +40,8 @@ def test_question_prior(
     test_name='default'
     ):
     all_df = pd.concat([bt_test_df, item_meta], axis=1)
-    all_df['test_measure'] = all_df['model_pred'].subtract(all_df['prob_correct']).abs()
-    all_df['test_measure_rankcorr'] = spearmanr(all_df['model_pred'].values, all_df['prob_correct'].values)
+    all_df['test_measure_diff'] = all_df['model_pred'].subtract(all_df['prob_correct']).abs()
+    all_df['test_measure'] = spearmanr(all_df['model_pred'].values, all_df['prob_correct'].values)[0]
     all_df['test_measure_corr'] = all_df[['model_pred', 'prob_correct']].corr().iloc[0,1]
     groupby_key = ['all']
     all_df.plot(kind='scatter', x='prob_correct', y='model_pred')

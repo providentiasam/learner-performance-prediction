@@ -104,25 +104,24 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train SAKT.')
-    parser.add_argument('--setup', type=str or bool, default=False)
-    parser.add_argument('--gpus', type=str, default='1,2,3')
+    parser.add_argument('--setup', type=str or bool, default='ednet_small')
+    parser.add_argument('--gpus', type=str, default='4,5,6,7')
     args_ = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args_.gpus
-    DEBUGGING = False
+    DEBUGGING = True
     REPEAT = 1
     if DEBUGGING:
         setup_path = './setups/sakt_loop_test.xlsx'
         setup_page = pd.DataFrame([{
             'dataset': 'ednet_small',
-            'num_attn_layers': 3,
-            'max_length': 400,
+            'num_attn_layers': 2,
+            'max_length': 300,
             'embed_size': 64,
             'num_heads': 16,
-            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.25, 'batch_size': 600, 'optimizer': 'noam',
-            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 100, 'repeat': 1, 'stride': 50,
+            'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.25, 'batch_size': 100, 'optimizer': 'noam',
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 1, 'repeat': 1, 'stride': 50,
             'query_feed': True, 'query_highpass': True
-        }, {'query_feed': False, 'query_highpass': True}, {'query_feed': True, 'query_highpass': False},
-        {'query_feed': False, 'query_highpass': False},
+        }
         ])
     elif args_.setup:
         setup_path = './setups/sakt_loop_{}.xlsx'.format(args_.setup)
@@ -140,7 +139,7 @@ if __name__ == "__main__":
             'drop_prob': [0.25],
             'optimizer': ['noam'],
             'lr': [0.003],
-            'encode_pos': [1], 'max_pos': [10], 'batch_size': [150], 
+            'encode_pos': [1], 'max_pos': [10], 'batch_size': [75], 
             'grad_clip': [10], 'num_epochs': [100], 'repeat': [REPEAT], 'stride': [50],
             'query_feed': [False], 'query_highpass': [False]
         }
@@ -201,7 +200,7 @@ if __name__ == "__main__":
                             break
                 if stop_experiment:
                     break
-                model = saver.load()
+                model = saver.load().to(torch.device("cuda"))
                 
                 if 1:
                     print('Testing...')
