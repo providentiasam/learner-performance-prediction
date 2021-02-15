@@ -8,8 +8,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.nn.utils import clip_grad_norm_
 
 from train_utils import *
-
-from models.model_sakt3 import SAKT
+from models.model_sakt2 import SAKT
 from utils import *
 import itertools
 
@@ -46,10 +45,10 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
     else:
         raise NotImplementedError
 
+    val_batches = prepare_batches(val_data, batch_size, randomize=False)
+
     for epoch in range(num_epochs):
         train_batches = prepare_batches(train_data, batch_size)
-        val_batches = prepare_batches(val_data, batch_size, randomize=False)
-
         # Training
         for item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels in train_batches:
             item_inputs = item_inputs.cuda()
@@ -90,7 +89,6 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
                 preds = torch.sigmoid(preds).cpu()
             val_auc = compute_auc(preds, labels)
             metrics.store({'auc/val': val_auc})
-        
         model.train()
 
         # Save model
@@ -119,7 +117,7 @@ if __name__ == "__main__":
             'embed_size': 64,
             'num_heads': 16,
             'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.25, 'batch_size': 100, 'optimizer': 'noam',
-            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 1, 'repeat': 1, 'stride': 50,
+            'lr': 0.003, 'grad_clip': 10, 'num_epochs': 5, 'repeat': 1, 'stride': 50,
             'query_feed': True, 'query_highpass': True
         }
         ])

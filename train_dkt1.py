@@ -143,7 +143,7 @@ def train(
         # Training
         for item_inputs, skill_inputs, item_ids, skill_ids, labels in train_batches:
             length = labels.size(1)
-            preds = torch.empty(labels.size(0), length, model.output_size)
+            preds = torch.empty(labels.size(0), length, model.module.output_size)
             preds = preds.cuda()
             item_inputs = cuda(item_inputs)
             skill_inputs = cuda(skill_inputs)
@@ -159,7 +159,7 @@ def train(
                 if i == 0:
                     pred, hidden = model(item_inp, skill_inp)
                 else:
-                    hidden = model.repackage_hidden(hidden)
+                    hidden = model.module.repackage_hidden(hidden)
                     pred, hidden = model(item_inp, skill_inp, hidden)
                 preds[:, i : i + bptt] = pred
 
@@ -215,10 +215,10 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DKT1.")
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="assistments17")
     parser.add_argument("--logdir", type=str, default="runs/dkt1")
     parser.add_argument("--savedir", type=str, default="save/dkt1")
-    parser.add_argument("--gpus", type=str, default="0,1")
+    parser.add_argument("--gpus", type=str, default="4,5")
     parser.add_argument(
         "--item_in",
         action="store_true",
@@ -252,7 +252,7 @@ if __name__ == "__main__":
     parser.add_argument("--hid_size", type=int, default=50)
     parser.add_argument("--num_hid_layers", type=int, default=1)
     parser.add_argument("--drop_prob", type=float, default=0.5)
-    parser.add_argument("--batch_size", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--num_epochs", type=int, default=100)
     parser.add_argument(
@@ -336,7 +336,7 @@ if __name__ == "__main__":
                 args.batch_size,
             )
             break
-        except RuntimeError:
+        except ValueError:
             args.batch_size = args.batch_size // 2
             print(f"Batch does not fit on gpu, reducing size to {args.batch_size}")
 

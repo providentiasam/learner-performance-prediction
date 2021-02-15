@@ -39,6 +39,7 @@ class Saver:
             if other_info is not None:
                 self.other_info = other_info
             torch.save(network.cpu(), self.path)
+            network.cuda()
             self.counter = 0
 
         stop = self.counter >= self.patience
