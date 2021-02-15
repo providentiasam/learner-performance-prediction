@@ -90,9 +90,9 @@ if __name__ == "__main__":
     parser.add_argument('--embed_size', type=int, default=100)
     parser.add_argument('--num_hid_layers', type=int, default=2)
     parser.add_argument('--drop_prob', type=float, default=0.5)
-    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--lr', type=float, default=1e-2)
-    parser.add_argument('--num_epochs', type=int, default=100)
+    parser.add_argument('--num_epochs', type=int, default=1)
     parser.add_argument('--seed', type=int, default=0)
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
@@ -117,22 +117,20 @@ if __name__ == "__main__":
     while True:
         try:
             # Train
-            param_str = f"{args.dataset}"
-            logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_dkt', model_args=args)
+            param_str = f"{args.dataset}_{args.hid_size}_{args.num_hid_layers}"
+            logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_dkt', run_name=param_str, model_args=args)
             saver = Saver(args.savedir, param_str)
             train(train_data, val_data, model, optimizer, logger, saver, args.num_epochs, args.batch_size)
             break
-        except ValueError as e:
+        except RuntimeError as e:
             print(str(e))
             args.batch_size = args.batch_size // 2
-            print(f'Batch does not fit on gpu, reducing size to {args.batch_size}')
-    
-    logger.close()
 
-    model = saver.load()
+    model = saver.load().cuda()
     test_data, _ = get_data(test_df, train_split=1.0, randomize=False)
     test_batches = prepare_batches(test_data, args.batch_size, randomize=False)
     test_preds = np.empty(0)
+    correct_labels = np.empty(0)
 
     # Predict on test set
     model.eval()
@@ -144,11 +142,11 @@ if __name__ == "__main__":
             item_ids = item_ids.cuda()
             skill_ids = skill_ids.cuda()
             preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
-            preds = torch.sigmoid(preds[labels >= 0]).cpu().numpy()
+            preds = torch.sigmoid(preds.detach().cpu()[labels >= 0]).cpu().numpy()
             test_preds = np.concatenate([test_preds, preds])
+            correct_labels = np.concatenate([correct_labels, labels[labels >= 0]])
 
-    # Write predictions to csv
-    test_df["DKT2"] = test_preds
-    test_df.to_csv(f'data/{args.dataset}/preprocessed_data_test.csv', sep="\t", index=False)
-
-    print("auc_test = ", roc_auc_score(test_df["correct"], test_preds))
+    setup_score = roc_auc_score(test_df['correct'], test_preds)
+    logger.log_scalars({'auc/test': setup_score}, step=logger.step)
+    logger.close()
+    print("auc_test = ", setup_score)

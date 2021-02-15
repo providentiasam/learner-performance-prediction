@@ -345,7 +345,7 @@ if __name__ == "__main__":
     best_epoch = saver.best_epoch
     print(f"best auc_val = {best_val_auc}")
 
-    model = saver.load()
+    model = saver.load().cuda()
     test_data, _ = get_data(
         test_df,
         args.item_in,

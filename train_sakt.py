@@ -199,7 +199,7 @@ if __name__ == "__main__":
                             break
                 if stop_experiment:
                     break
-                model = saver.load().to(torch.device("cuda"))
+                model = saver.load().cuda()
                 
                 if 1:
                     print('Testing...')
