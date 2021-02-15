@@ -11,9 +11,11 @@ from models.model_dkt2 import DKT2
 from utils import *
 from train_utils import *
 
+import traceback
+
 
 def train(
-    train_data, val_data, model, optimizer, logger, saver, num_epochs, batch_size
+    train_data, val_data, model, optimizer, logger, saver, num_epochs, batch_size, device
 ):
     """Train DKT model.
 
@@ -44,14 +46,14 @@ def train(
             skill_ids,
             labels,
         ) in train_batches:
-            item_inputs = item_inputs.cuda()
-            skill_inputs = skill_inputs.cuda()
-            label_inputs = label_inputs.cuda()
-            item_ids = item_ids.cuda()
-            skill_ids = skill_ids.cuda()
+            item_inputs = item_inputs.to(device)
+            skill_inputs = skill_inputs.to(device)
+            label_inputs = label_inputs.to(device)
+            item_ids = item_ids.to(device)
+            skill_ids = skill_ids.to(device)
             preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
 
-            loss = compute_loss(preds, labels.cuda(), criterion)
+            loss = compute_loss(preds, labels.to(device), criterion)
             train_auc = compute_auc(torch.sigmoid(preds).detach().cpu(), labels)
 
             model.zero_grad()
@@ -76,16 +78,16 @@ def train(
             labels,
         ) in val_batches:
             with torch.no_grad():
-                item_inputs = item_inputs.cuda()
-                skill_inputs = skill_inputs.cuda()
-                label_inputs = label_inputs.cuda()
-                item_ids = item_ids.cuda()
-                skill_ids = skill_ids.cuda()
+                item_inputs = item_inputs.to(device)
+                skill_inputs = skill_inputs.to(device)
+                label_inputs = label_inputs.to(device)
+                item_ids = item_ids.to(device)
+                skill_ids = skill_ids.to(device)
                 preds = model(
                     item_inputs, skill_inputs, label_inputs, item_ids, skill_ids
                 )
-            val_auc = compute_auc(torch.sigmoid(preds).cpu(), labels)
-            metrics.store({"auc/val": val_auc})
+                val_auc = compute_auc(torch.sigmoid(preds).cpu(), labels.cpu())
+                metrics.store({"auc/val": val_auc})
         model.train()
 
         # Save model
@@ -111,11 +113,25 @@ if __name__ == "__main__":
     parser.add_argument("--seqlen", type=int, default=100)
     parser.add_argument("--num_epochs", type=int, default=5)
     parser.add_argument("--seed", type=int, default=0)
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3"
+    parser.add_argument("--gpu", type=str, default="0")
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--use_wandb", action="store_true", default=False)
+    parser.add_argument("--project", type=str, default='bt_dkt2')
+    parser.add_argument("--name", type=str, default="train_dkt2")
+    parser.add_argument("--verbose_error", type=bool, default=True)
     
     args = parser.parse_args()
 
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+
     set_random_seeds(args.seed)
+
+    # initialize wandb
+    if args.use_wandb:
+        wandb.init(project=args.project, name=args.name, config=args)
+        print('wandb init')
+    else:
+        args.project = None
 
     full_df = pd.read_csv(
         os.path.join("data", args.dataset, "preprocessed_data.csv"), sep="\t"
@@ -139,6 +155,7 @@ if __name__ == "__main__":
         args.num_hid_layers,
         args.drop_prob,
     )
+    model.to(args.device)
     if torch.cuda.device_count() > 1:
         print('using {} GPUs'.format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
@@ -149,7 +166,11 @@ if __name__ == "__main__":
         try:
             # Train
             param_str = f"{args.dataset}"
-            logger = Logger(os.path.join(args.logdir, param_str))
+            logger = Logger(
+                os.path.join(args.logdir, param_str),
+                project_name=args.project,
+                run_name=args.name,
+            )
             saver = Saver(args.savedir, param_str)
             train(
                 train_data,
@@ -160,15 +181,20 @@ if __name__ == "__main__":
                 saver,
                 args.num_epochs,
                 args.batch_size,
+                args.device,
             )
             break
-        except RuntimeError:
+        except RuntimeError as e:
+            if args.verbose_error:
+                print("error detail")
+                traceback.print_exc()
             args.batch_size = args.batch_size // 2
             print(f"Batch does not fit on gpu, reducing size to {args.batch_size}")
 
     logger.close()
 
     model = saver.load()
+    model.to(args.device)
     # test_data, _ = get_chunked_data(test_df, max_length=args.seqlen, train_split=1.0, randomize=False)
     test_data, _ = get_data(test_df, train_split=1.0, randomize=False)
     test_batches = prepare_batches(test_data, args.batch_size, randomize=False)
