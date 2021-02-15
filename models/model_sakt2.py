@@ -106,13 +106,7 @@ class SAKT(nn.Module):
         mask = future_mask(inputs.size(-2))
         if inputs.is_cuda:
             mask = mask.cuda()
-
-        # outputs = self.layer_norms[0](
-        #     self.dropouts[0](
-        #         self.attn_layers[0](
-        #             query, inputs, inputs, self.encode_pos,
-        #             self.pos_key_embeds, self.pos_value_embeds, mask)))
-
+            
         attn_output = self.attn_layers[0](
             query, inputs, inputs, self.encode_pos, 
             self.pos_key_embeds, self.pos_value_embeds, mask,

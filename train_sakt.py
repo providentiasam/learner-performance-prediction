@@ -9,7 +9,7 @@ from torch.nn.utils import clip_grad_norm_
 
 from train_utils import *
 
-from models.model_sakt2 import SAKT
+from models.model_sakt3 import SAKT
 from utils import *
 import itertools
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         setup_page = pd.DataFrame([{
             'dataset': 'ednet_small',
             'num_attn_layers': 2,
-            'max_length': 300,
+            'max_length': 100,
             'embed_size': 64,
             'num_heads': 16,
             'encode_pos': 1, 'max_pos': 10, 'drop_prob': 0.25, 'batch_size': 100, 'optimizer': 'noam',
@@ -191,7 +191,8 @@ if __name__ == "__main__":
                                 int(args.batch_size), args.grad_clip)
                         logger.log_scalars({'adj_batch_size': args.batch_size}, step=logger.step)
                         break
-                    except RuntimeError:
+                    except ValueError as e:
+                        print(e)
                         args.loc['batch_size'] = args.batch_size // 2
                         setup_page.loc[setup_index, 'batch_size'] = args['batch_size']
                         print(f'Batch does not fit on gpu, reducing size to {args.batch_size}')
@@ -233,7 +234,7 @@ if __name__ == "__main__":
                 del logger
                 del model
 
-        except Exception as e:
+        except ValueError as e:
             print(e)
             setup_page.loc[setup_index, 'remark'] = str(e)
             setup_page.to_excel(save_path.replace('setups/', 'results/'))

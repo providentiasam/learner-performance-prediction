@@ -1,12 +1,9 @@
 #!/bin/bash
-export CUDA_VISIBLE_DEVICES="0"
-datasets=("spanish" "statics" "ednet_small" "assistments15" "assistments17")
-datasets=("ednet_small")
-tests=("original" "insertion" "deletion" "replacement")
-tests=("question_prior")
-tests=("insertion" "deletion" "replacement")
-models=("sakt" "dkt1" "saint")
-models=("sakt")
+export CUDA_VISIBLE_DEVICES="4,5,6,7"
+datasets=("spanish" "statics" "ednet_small" "assistments15" "assistments17" "ednet_medium")
+datasets=("ednet_medium")
+tests=("insertion" "deletion" "question_prior" "replacement" "original")
+models=("saint")
 for model in "${models[@]}"; do
 	for dataset in "${datasets[@]}"; do
 		for test in "${tests[@]}"; do

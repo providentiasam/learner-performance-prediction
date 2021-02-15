@@ -31,10 +31,10 @@ def train(
     metrics = Metrics()
     step = 0
 
-    for epoch in range(num_epochs):
-        train_batches = prepare_batches(train_data, batch_size)
-        val_batches = prepare_batches(val_data, batch_size)
+    train_batches = prepare_batches(train_data, batch_size)
+    val_batches = prepare_batches(val_data, batch_size)
 
+    for epoch in range(num_epochs):
         # Training
         for (
             item_inputs,
@@ -99,7 +99,7 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DKT.")
-    parser.add_argument("--dataset", type=str, default="ednet_medium")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--logdir", type=str, default="runs/dkt")
     parser.add_argument("--savedir", type=str, default="save/dkt")
     parser.add_argument("--hid_size", type=int, default=128)
@@ -108,9 +108,10 @@ if __name__ == "__main__":
     parser.add_argument("--drop_prob", type=float, default=0.5)
     parser.add_argument("--batch_size", type=int, default=200)
     parser.add_argument("--lr", type=float, default=3e-3)
-    parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--seqlen", type=int, default=100)
+    parser.add_argument("--num_epochs", type=int, default=5)
     parser.add_argument("--seed", type=int, default=0)
-    os.environ['CUDA_VISIBLE_DEVICES'] = "1,2,3"
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3"
     
     args = parser.parse_args()
 
@@ -126,6 +127,8 @@ if __name__ == "__main__":
         os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
     )
 
+    # train_data, val_data = get_chunked_data(train_df, max_length=args.seqlen, train_split=0.8, \
+    #     randomize=True, stride=args.seqlen//2, non_overlap_only=True)
     train_data, val_data = get_data(train_df, train_split=0.8)
 
     model = DKT2(
@@ -136,9 +139,9 @@ if __name__ == "__main__":
         args.num_hid_layers,
         args.drop_prob,
     )
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # model = nn.DataParallel(model)
-    # model.to(device)
+    if torch.cuda.device_count() > 1:
+        print('using {} GPUs'.format(torch.cuda.device_count()))
+        model = nn.DataParallel(model)
     optimizer = Adam(model.parameters(), lr=args.lr)
 
     # Reduce batch size until it fits on GPU
@@ -166,6 +169,7 @@ if __name__ == "__main__":
     logger.close()
 
     model = saver.load()
+    # test_data, _ = get_chunked_data(test_df, max_length=args.seqlen, train_split=1.0, randomize=False)
     test_data, _ = get_data(test_df, train_split=1.0, randomize=False)
     test_batches = prepare_batches(test_data, args.batch_size, randomize=False)
 

@@ -19,6 +19,7 @@ import wandb
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
+from models.model_sakt3 import SAKT, SAINT
 
 DEVICE = 'cuda'
 FIX_SUBTWO = False
@@ -202,258 +203,6 @@ class AbsoluteDiscretePositionalEncoding(nn.Module):
         return abs_pos_enc
 
 
-class SAINT(pl.LightningModule):
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-
-        self.embed = nn.ModuleDict()
-        # maybe TODO: manage them with feature classes
-        self.embed["qid"] = nn.Embedding(
-            config.num_item + 1, config.dim_model, padding_idx=0
-        )
-        if hasattr(config, "num_part"):
-            self.embed["part"] = nn.Embedding(
-                config.num_part + 1, config.dim_model, padding_idx=0
-            )
-        self.embed["skill"] = nn.Embedding(
-            config.num_skill + 1, config.dim_model, padding_idx=0
-        )
-        self.embed["is_correct"] = nn.Embedding(3, config.dim_model, padding_idx=0)
-
-        # transformer
-        self.transformer = nn.Transformer(
-            d_model=config.dim_model,
-            nhead=config.head_count,
-            num_encoder_layers=config.layer_count,
-            num_decoder_layers=config.layer_count,
-            dim_feedforward=config.dim_ff,
-            dropout=config.dropout_rate,
-        )
-        # positional encoding
-        self.embed["enc_pos"] = AbsoluteDiscretePositionalEncoding(
-            dim_emb=config.dim_model, max_len=config.seq_len, device=config.device
-        )
-        self.embed["dec_pos"] = copy.deepcopy(self.embed["enc_pos"])
-        self.generator = nn.Linear(config.dim_model, 1)
-
-        self.val_auc = 0
-        self.best_val_auc = 0
-        self.best_step = -1
-        self.test_auc = 0
-        self.preds = []
-        self.labels = []
-
-        # xavier initialization
-        for param in self.parameters():
-            if param.dim() > 1:
-                nn.init.xavier_uniform_(param)
-            
-    def compute_all_losses(
-        self, batch_dict,
-    ):
-        """
-        forward function for Transformer
-        Args:
-            batch_dict: dictionary of float tensors.
-            Used items:
-                observed_data: observed features, (B, L_comb, f_num)
-                observed_tp: combined timestamps (L_comb, ), same as
-                             tp_to_predict
-                observed_mask: 1 for observed features, 0 for otherwise
-            Unused items:
-                tp_to_predict: equal to tp_to_predict
-                mode: stringnvidia
-            n_tp_to_sample: not used
-            n_traj_samples: not usedo
-            kl_coeff: not used
-        Returns:
-            ...
-        """
-        device = self.config.device
-        timestamp = torch.arange(1, self.config.seq_len + 1).to(device)
-
-        obs_mask = batch_dict["pad_mask"].to(device)  # padding mask
-        src = self.embed["qid"](batch_dict["qid"].to(device))
-        src += self.embed["skill"](batch_dict["skill"].squeeze(-1).to(device))
-        # src += self.embed['part'](batch_dict['part'])
-        # positional encoding
-        enc_pos = self.embed["enc_pos"](timestamp).squeeze(0)  # (L_T, D)
-        src += enc_pos
-
-        shifted_correct = torch.cat(
-            [
-                torch.zeros([batch_dict["is_correct"].size(0), 1]).long().to(device),
-                batch_dict["is_correct"][:, :-1].to(device),
-            ],
-            -1,
-        )
-        tgt = self.embed["is_correct"](shifted_correct)
-        dec_pos = self.embed["dec_pos"](timestamp).squeeze(0)  # (B, L_T, D)
-        tgt += dec_pos
-
-        src = src.transpose(0, 1)  # (L, B, D)
-        tgt = tgt.transpose(0, 1)
-        attn_mask = self.transformer.generate_square_subsequent_mask(src.size(0))
-        attn_mask = attn_mask.to(device)
-
-        transformer_output = self.transformer(
-            src,
-            tgt,
-            src_mask=attn_mask,
-            tgt_mask=attn_mask,
-            memory_mask=attn_mask,
-            src_key_padding_mask=~obs_mask,
-            tgt_key_padding_mask=~obs_mask,
-            # memory_key_padding_mask=obs_mask
-        ).transpose(
-            0, 1
-        )  # (B, L, D)
-
-        prediction = self.generator(transformer_output).squeeze(-1)  # (B, L)
-        y = batch_dict["is_correct"].float().to(device)
-        ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), (2 - y) if not FIX_SUBTWO else y)  # (B, L)
-
-        results = {
-            "loss": ce_loss,
-            "pred": prediction.detach(),
-        }
-        return results
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr,)
-
-        def noam(step: int):
-            step = max(1, step)
-            warmup_steps = self.config.warmup_step
-            scale = warmup_steps ** 0.5 * min(
-                step ** (-0.5), step * warmup_steps ** (-1.5)
-            )
-            return scale
-
-        scheduler = LambdaLR(optimizer=optimizer, lr_lambda=noam)
-        scheduler = {
-            "scheduler": scheduler,
-            "interval": "step",
-            "frequency": 1,
-        }
-        return [optimizer], [scheduler]
-
-    def training_step(self, train_batch, batch_idx):
-        train_res = self.compute_all_losses(train_batch)
-        loss = train_res["loss"]  # (B, L)
-        mask = train_batch["pad_mask"]
-        loss = torch.sum(loss * mask) / torch.sum(mask)
-        # if (
-        #     self.config.use_wandb
-        #     and self.global_step % self.config.val_check_steps == 0
-        # ):
-        #     # wandb log
-        #     wandb.log({"Train loss": loss.item()}, step=self.global_step)
-        
-        # return {"loss": loss.mean()}
-        return loss
-
-    def training_epoch_end(self, training_step_outputs):
-        # summarize train epoch results
-        losses = []
-        for out in training_step_outputs:
-            losses.append(out["loss"])
-        epoch_loss = sum(losses) / len(losses)
-        print(f"Epoch Train loss: {epoch_loss}")
-
-    def validation_step(self, val_batch, batch_idx):
-        val_res = self.compute_all_losses(val_batch)
-        loss = val_res["loss"]  # (B, L)
-        pred = val_res["pred"]
-        label = (2 - val_batch["is_correct"]) if not FIX_SUBTWO else val_batch["is_correct"]
-
-        infer_mask = val_batch["infer_mask"]
-        loss = torch.sum(loss * infer_mask) / torch.sum(infer_mask)
-        nonzeros = torch.nonzero(infer_mask, as_tuple=True)
-        pred = pred[nonzeros].sigmoid()
-        label = label[nonzeros].long()
-        return {"loss": loss, "pred": pred, "label": label}
-
-    def validation_epoch_end(self, validation_step_outputs):
-        # summarize epoch results
-        losses = []
-        preds = []
-        labels = []
-        for out in validation_step_outputs:
-            losses.append(out["loss"])
-            preds.append(out["pred"])
-            labels.append(out["label"])
-
-        preds = torch.cat(preds, dim=0).view(-1)
-        labels = torch.cat(labels, dim=0).view(-1)
-        epoch_loss = (sum(losses) / len(losses)).mean()
-        epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
-        print(
-            f"Val loss: {epoch_loss.mean():.4f}, auc: {epoch_auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
-        )
-        if epoch_auc > self.best_val_auc:
-            self.best_val_auc = epoch_auc
-            self.best_step = self.global_step
-
-        if self.config.use_wandb:
-            wandb.log(
-                {
-                    "Val loss": epoch_loss,
-                    "Val auc": epoch_auc,
-                    "Best Val auc": self.best_val_auc,
-                },
-                step=self.global_step + 1,
-            )
-
-        return {
-            "val_loss": epoch_loss,
-            "val_auc": epoch_auc,
-            "best_val_auc": self.best_val_auc,
-            "best_step": self.best_step,
-        }
-
-    def test_step(self, test_batch, batch_idx):
-        test_res = self.compute_all_losses(test_batch)
-        loss = test_res["loss"]  # (B, L)
-        pred = test_res["pred"]
-        label = (2 - test_batch["is_correct"]) if not FIX_SUBTWO else test_batch["is_correct"]
-
-        infer_mask = test_batch["infer_mask"]
-        loss = torch.sum(loss * infer_mask) / torch.sum(infer_mask)
-        nonzeros = torch.nonzero(infer_mask, as_tuple=True)
-        pred = pred[nonzeros].sigmoid()
-        label = label[nonzeros].long()
-        return {"pred": pred, "label": label, "loss": loss}
-
-    def test_epoch_end(self, test_step_outputs):
-        losses = []
-        preds = []
-        labels = []
-        for out in test_step_outputs:
-            losses.append(out["loss"])
-            preds.append(out["pred"])
-            labels.append(out["label"])
-
-        preds = torch.cat(preds, dim=0).view(-1)
-        labels = torch.cat(labels, dim=0).view(-1)
-        self.preds.append(preds.cpu())
-        self.labels.append(labels.cpu())
-        epoch_loss = (sum(losses) / len(losses)).mean()
-        epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
-
-        print(f"Test loss: {epoch_loss:.4f}, auc: {epoch_auc:.4f}")
-        self.test_auc = epoch_auc
-        if self.config.use_wandb:
-            wandb.log(
-                {"Test loss": epoch_loss, "Test auc": epoch_auc,}
-            )
-
-        return {
-            "test_auc": epoch_auc
-        }
-        
-
 def str2bool(val):
     if val.lower() in ("yes", "true", "t", "y", "1"):
         ret = True
@@ -495,26 +244,26 @@ def print_args(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=True)
-    parser.add_argument("--project", type=str, default='bt_saint_dist')
-    parser.add_argument("--name", type=str, default='saint')
+    parser.add_argument("--project", type=str, default='bt_lightning')
+    parser.add_argument("--model", type=str, default='sakt')
+    parser.add_argument("--name", type=str)
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_epochs", type=int, default=50)
-    parser.add_argument("--train_batch", type=int, default=64)
-    parser.add_argument("--test_batch", type=int, default=128)
+    parser.add_argument("--num_epochs", type=int, default=10)
+    parser.add_argument("--train_batch", type=int, default=128)
+    parser.add_argument("--test_batch", type=int, default=512)
     parser.add_argument("--num_workers", type=int, default=8)
-    parser.add_argument("--eval_steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.003)
-    parser.add_argument("--gpu", type=str, default="4,5")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--device", type=str, default="gpu")
-    parser.add_argument("--layer_count", type=int, default=2)
+    parser.add_argument("--layer_count", type=int, default=3)
     parser.add_argument("--head_count", type=int, default=16)
-    parser.add_argument("--warmup_step", type=int, default=200)
-    parser.add_argument("--dim_model", type=int, default=64)
-    parser.add_argument("--dim_ff", type=int, default=256)
+    parser.add_argument("--warmup_step", type=int, default=1000)
+    parser.add_argument("--dim_model", type=int, default=128)
+    parser.add_argument("--dim_ff", type=int, default=512)
     parser.add_argument("--seq_len", type=int, default=100)
     parser.add_argument("--dropout_rate", type=float, default=0.1)
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="ednet")
     parser.add_argument("--patience", type=int, default=30)
     parser.add_argument("--accel", type=str, default='dp')
     # for debugging
@@ -535,7 +284,7 @@ if __name__ == "__main__":
 
     if args.name is None:
         args.name = (
-            f"{args.dataset}_l{args.layer_count}_dim{args.dim_model}_seq{args.seq_len}"
+            f"{args.model}_{args.dataset}_l{args.layer_count}_d{args.dim_model}_seq{args.seq_len}"
             + f"_{int(time.time())}"
         )
 
@@ -552,8 +301,13 @@ if __name__ == "__main__":
     pl.seed_everything(args.random_seed)
 
     print_args(args)
+    if args.model.lower().startswith('saint'):
+        model = SAINT(args)
+    elif args.name.lower().startswith('sakt'):
+        model = SAKT(args)
+    else:
+        raise NotImplementedError
 
-    model = SAINT(args)
     datamodule = DataModule(args)
 
     checkpoint_callback = ModelCheckpoint(
@@ -590,7 +344,10 @@ if __name__ == "__main__":
 
     # test results
     checkpoint_path = checkpoint_callback.best_model_path
-    model = SAINT.load_from_checkpoint(checkpoint_path, config=args)
+    if args.model == 'saint':
+        model = SAINT.load_from_checkpoint(checkpoint_path, config=args)
+    elif args.model == 'sakt':
+        model = SAKT.load_from_checkpoint(checkpoint_path, config=args)
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
     model.eval()

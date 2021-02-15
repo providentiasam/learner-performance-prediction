@@ -20,7 +20,7 @@ def test_perturbation(bt_test_df, diff_threshold=0):
         for virtual_user_id in model_diff.columns:
             new_group[('model_diff', virtual_user_id)] = model_diff[virtual_user_id].copy()
         stacked_df_dict[orig_user_id] = new_group
-    result_df = pd.concat([y.stack('user_id') for _, y in stacked_df_dict.items()], axis=0).reset_index(drop=False)
+    result_df = pd.concat([y.stack('user_id') for _, y in tqdm(stacked_df_dict.items(), desc='User-wise Stacking')], axis=0).reset_index(drop=False)
     result_df = result_df.set_index('new_idx').sort_index()
     result_df.index = result_df.index.astype(int)
     perturbed_idx = result_df['is_perturbed'] != 0

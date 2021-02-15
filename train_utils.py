@@ -124,10 +124,11 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
             return list
         list = [window_split(elem, max_length, stride) for elem in list]
         return [elem for sublist in list for elem in sublist]
-
+    # TODO: Optimize below.
+    
     # Chunk sequences: '_inputs' go to key/value / '_ids' go to query
     lists = (item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
-    chunked_lists = [chunk(l, stride) for l in lists]
+    chunked_lists = [chunk(l, stride) for l in tqdm(lists, desc='Chunk Data Type')]
     if non_overlap_only:
         non_overlap_from = [y for x in tqdm(labels, ascii=True, desc='Infrence Mask') for y in \
                             window_split(x, window_size=max_length, stride=stride, return_nonoverlap=True)]
