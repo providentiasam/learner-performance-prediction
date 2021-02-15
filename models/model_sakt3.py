@@ -353,8 +353,8 @@ class SAKT(SAINT, pl.LightningModule):
             nhead=config.head_count,
             dim_feedforward=config.dim_ff,
             dropout=config.dropout_rate,
-        ), config.layer_count)
-        self.layer_norms = clone(nn.LayerNorm(config.dim_model), config.layer_count)
+        ), config.layer_count * 2)
+        self.layer_norms = clone(nn.LayerNorm(config.dim_model), config.layer_count * 2)
         # positional encoding
         self.embed["enc_pos"] = AbsoluteDiscretePositionalEncoding(
             dim_emb=config.dim_model, max_len=config.seq_len, device=config.device

@@ -12,7 +12,7 @@ def test_perturbation(bt_test_df, diff_threshold=0):
     bt_test_df.loc[:, 'model_diff'] = np.nan
     bt_test_df['new_idx'] = bt_test_df.index
     stacked_df_dict = {}
-    for orig_user_id, group in tqdm(bt_test_df.groupby('orig_user_id'), ascii=True, desc='User-wise Behavior Test'):
+    for orig_user_id, group in tqdm(bt_test_df.groupby('orig_user_id'), desc='User-wise Behavior Test'):
         new_group = group.set_index(['user_id', 'orig_idx'], drop=True).unstack('user_id')
         unperturbed_user_id = new_group['is_perturbed'].fillna(0.0).abs().sum().idxmin()
         assert new_group['is_perturbed'][unperturbed_user_id].fillna(0).sum() == 0
@@ -40,7 +40,7 @@ def gen_perturbation(orig_df, perturb_func, **pf_args):
         pf_args: additional arguments for perturb_func
     """
     new_df_list = []
-    for user_id, user_key_df in tqdm(orig_df.groupby(["user_id"]), ascii=True, desc='User-wise Perturbation'):
+    for user_id, user_key_df in tqdm(orig_df.groupby(["user_id"]), desc='User-wise Perturbation'):
         new_df = perturb_func(user_key_df, **pf_args)
         if new_df is not None:
             new_df_list.append(new_df)

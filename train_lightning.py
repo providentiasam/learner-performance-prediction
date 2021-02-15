@@ -19,7 +19,7 @@ import wandb
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-from models.model_sakt3 import SAKT, SAINT
+from models.model_lightning import SAKT, SAINT
 
 DEVICE = 'cuda'
 FIX_SUBTWO = False
@@ -244,27 +244,27 @@ def print_args(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=True)
-    parser.add_argument("--project", type=str, default='bt_lightning')
+    parser.add_argument("--project", type=str, default='bt_lightning2')
     parser.add_argument("--model", type=str, default='sakt')
     parser.add_argument("--name", type=str)
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
     parser.add_argument("--num_epochs", type=int, default=10)
-    parser.add_argument("--train_batch", type=int, default=128)
-    parser.add_argument("--test_batch", type=int, default=512)
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--train_batch", type=int, default=256)
+    parser.add_argument("--test_batch", type=int, default=128)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--lr", type=float, default=0.003)
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
+    parser.add_argument("--gpu", type=str, default="6,7")
     parser.add_argument("--device", type=str, default="gpu")
     parser.add_argument("--layer_count", type=int, default=3)
     parser.add_argument("--head_count", type=int, default=16)
-    parser.add_argument("--warmup_step", type=int, default=1000)
+    parser.add_argument("--warmup_step", type=int, default=500)
     parser.add_argument("--dim_model", type=int, default=128)
     parser.add_argument("--dim_ff", type=int, default=512)
     parser.add_argument("--seq_len", type=int, default=100)
-    parser.add_argument("--dropout_rate", type=float, default=0.1)
-    parser.add_argument("--dataset", type=str, default="ednet")
-    parser.add_argument("--patience", type=int, default=30)
+    parser.add_argument("--dropout_rate", type=float, default=0.2)
+    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--accel", type=str, default='dp')
     # for debugging
     parser.add_argument("--limit_train_batches", type=float, default=1.0)
@@ -308,8 +308,6 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    datamodule = DataModule(args)
-
     checkpoint_callback = ModelCheckpoint(
         monitor="val_auc",
         dirpath=f"save/saint/{args.dataset}",
@@ -336,7 +334,15 @@ if __name__ == "__main__":
     if args.use_wandb:
         wandb.init(project=args.project, name=args.name, config=args)
         print('wandb init')
-    trainer.fit(model=model, datamodule=datamodule)
+    while True:
+        try:
+            datamodule = DataModule(args)
+            trainer.fit(model=model, datamodule=datamodule)
+            break
+        except RuntimeError as e:
+            print(e)
+            args.train_batch = args.train_batch // 2
+
 
     # validation results
     best_val_auc = trainer.callback_metrics["best_val_auc"]
@@ -345,59 +351,14 @@ if __name__ == "__main__":
     # test results
     checkpoint_path = checkpoint_callback.best_model_path
     if args.model == 'saint':
-        model = SAINT.load_from_checkpoint(checkpoint_path, config=args)
+        model = SAINT.load_from_checkpoint(checkpoint_path, config=args).cuda()
     elif args.model == 'sakt':
-        model = SAKT.load_from_checkpoint(checkpoint_path, config=args)
+        model = SAKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
     model.eval()
     trainer.test(model=model, datamodule=datamodule)
     test_auc = trainer.callback_metrics["test_auc"]
-    model.eval()
+    print(test_auc)
     preds, labels = predict_saint(saint_model=model, dataloader=datamodule.test_gen, return_labels=True)
     print(roc_auc_score(labels.cpu(), preds.cpu()))
-
-    if 0:
-        # log results
-        result_path = f"results/saint_{args.dataset}.csv"
-        column_names = [
-            "experiment_time",
-            "train_batch",
-            "val_check_interval",
-            "lr",
-            "warmup_step",
-            "dropout_rate",
-            "layer_count",
-            "head_count",
-            "dim_model",
-            "dim_ff",
-            "seq_len",
-            "best_val_auc",
-            "best_step",
-            "test_auc",
-        ]
-        if not os.path.exists(result_path):
-            # initialize result dataframe
-            df = pd.DataFrame(columns=column_names)
-            df.to_csv(result_path, index=False, header=True)
-
-        base_df = pd.read_csv(result_path)
-        current_time = datetime.now()
-        result_df = pd.DataFrame.from_dict([{
-            "experiment_time": current_time,
-            "train_batch": args.train_batch,
-            "val_check_interval": args.val_check_interval,
-            "lr": args.lr,
-            "warmup_step": args.warmup_step,
-            "dropout_rate": args.dropout_rate,
-            "layer_count": args.layer_count,
-            "head_count": args.head_count,
-            "dim_model": args.dim_model,
-            "dim_ff": args.dim_ff,
-            "seq_len": args.seq_len,
-            "best_val_auc": best_val_auc,
-            "best_step": best_step,
-            "test_auc": test_auc,
-        }])
-        base_df = base_df.append(result_df)
-        base_df.to_csv(result_path, index=False, header=True)

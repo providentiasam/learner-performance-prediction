@@ -129,6 +129,13 @@ class LightningKT(pl.LightningModule):
             losses.append(out["loss"])
         epoch_loss = sum(losses) / len(losses)
         print(f"Epoch Train loss: {epoch_loss}")
+        if self.config.use_wandb:
+            wandb.log(
+                {
+                    "Train loss": epoch_loss
+                },
+                step=self.global_step + 1,
+            )
 
     def validation_step(self, val_batch, batch_idx):
         val_res = self.compute_all_losses(val_batch)
@@ -223,8 +230,7 @@ class LightningKT(pl.LightningModule):
 
 class SAINT(LightningKT):
     def __init__(self, config):
-        super().__init__()
-        self.config = config
+        super().__init__(config)
 
         self.embed = nn.ModuleDict()
         # maybe TODO: manage them with feature classes
@@ -317,18 +323,15 @@ class SAINT(LightningKT):
 class SAKT(LightningKT):
     def __init__(self, config):
         super().__init__(config)
-
-        self.config = config
-
         self.embed = nn.ModuleDict()
         # maybe TODO: manage them with feature classes
         self.embed["qid"] = nn.Embedding(
             config.num_item + 1, config.dim_model, padding_idx=0
         )
-        self.lin_in = nn.Linear(config.dim_model * 2, config.dim_model)
         self.embed["skill"] = nn.Embedding(
             config.num_skill + 1, config.dim_model, padding_idx=0
         )
+        self.lin_in = nn.Linear(config.dim_model * 2, config.dim_model)
         self.embed["is_correct"] = nn.Embedding(3, config.dim_model, padding_idx=0)
 
         # transformer

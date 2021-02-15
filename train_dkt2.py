@@ -110,7 +110,7 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
         print('using {} GPUs'.format(torch.cuda.device_count()))
-        model = nn.DataParallel(model, device_ids=[0,1])
+        model = nn.DataParallel(model)
     model.cuda()
 
     # Reduce batch size until it fits on GPU

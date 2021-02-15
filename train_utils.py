@@ -109,7 +109,7 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
     """
     item_ids, skill_ids, labels = [], [], []
     item_inputs, skill_inputs, label_inputs = [], [], []
-    for _, u_df in tqdm(df.groupby("user_id"), ascii=True, desc='User-wise Seq'):
+    for _, u_df in tqdm(df.groupby("user_id"), desc='User-wise Seq'):
         item_ids.append(torch.tensor(u_df['item_id'].values + 1, dtype=torch.long))
         skill_ids.append(torch.tensor(u_df['skill_id'].values + 1, dtype=torch.long))
         labels.append(torch.tensor(u_df['correct'].values, dtype=torch.long))
@@ -130,7 +130,7 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
     lists = (item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
     chunked_lists = [chunk(l, stride) for l in tqdm(lists, desc='Chunk Data Type')]
     if non_overlap_only:
-        non_overlap_from = [y for x in tqdm(labels, ascii=True, desc='Infrence Mask') for y in \
+        non_overlap_from = [y for x in tqdm(labels, desc='Infrence Mask') for y in \
                             window_split(x, window_size=max_length, stride=stride, return_nonoverlap=True)]
         # chunked_lists.append([y for x in item_inputs for y in window_split(x, max_length, stride)[1]])
         non_overlap_labels = []
@@ -163,7 +163,7 @@ def prepare_batches(data, batch_size, randomize=True):
         shuffle(data)
     batches = []
 
-    for k in tqdm(range(0, len(data), batch_size), ascii=True, desc="Batch Preparation"):
+    for k in tqdm(range(0, len(data), batch_size), desc="Batch Preparation"):
         batch = data[k: k + batch_size]
         seq_lists = list(zip(*batch))
         inputs_and_ids = [
@@ -206,7 +206,7 @@ def eval_batches(model, batches, device='cpu', model_name=None):
             item_ids,
             skill_ids,
             labels,
-    ) in tqdm(batches, ascii=True, desc='Batch Progress'):
+    ) in tqdm(batches, desc='Batch Progress'):
         with torch.no_grad():
 
             if model_name is not None and model_name=='dkt1':

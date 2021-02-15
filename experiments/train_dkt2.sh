@@ -1,5 +1,5 @@
 #!/bin/bash
-export CUDA_VISIBLE_DEVICES="4,5,6,7"
+export CUDA_VISIBLE_DEVICES="4,5"
 datasets=("ednet_small" "ednet_medium" "ednet" "assistments15" "assistments17" "spanish" "statics" )
 for dataset in "${datasets[@]}"; do
 	for lr in $(seq 0.001 0.003 0.01)
