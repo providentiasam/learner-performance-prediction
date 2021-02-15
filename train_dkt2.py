@@ -12,6 +12,8 @@ from models.model_dkt2 import DKT2
 from utils import *
 from train_utils import *
 
+import traceback
+
 
 def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, batch_size):
     """Train DKT model.
@@ -42,7 +44,7 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
             skill_ids = skill_ids.cuda()
             preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
 
-            loss = compute_loss(preds, labels.cuda(), criterion)
+            loss = compute_loss(preds, labels.to(device), criterion)
             train_auc = compute_auc(torch.sigmoid(preds).detach().cpu(), labels)
 
             model.zero_grad()
