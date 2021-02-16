@@ -125,6 +125,8 @@ if __name__ == "__main__":
         except RuntimeError as e:
             print(str(e))
             args.batch_size = args.batch_size // 2
+            if args.batch_size < 20:
+                assert False
 
     model = saver.load().cuda()
     test_data, _ = get_data(test_df, train_split=1.0, randomize=False)
