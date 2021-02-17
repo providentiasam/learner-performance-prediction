@@ -31,6 +31,8 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
     metrics = Metrics()
     step = 0
 
+    best_val_auc = 0.0
+
     val_batches = prepare_batches(val_data, batch_size, randomize=False)
     for epoch in range(num_epochs):
         train_batches = prepare_batches(train_data, batch_size)
@@ -77,7 +79,9 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
         average_metrics = metrics.average()
         logger.log_scalars(average_metrics, step)
         stop = saver.save(average_metrics['auc/val'], model)
-        if stop:
+        best_val_auc = max(best_val_auc, average_metrics['auc/val'])
+        if stop or epoch == num_epochs - 1:
+            logger.log_scalars({'best_auc/val': best_val_auc}, step=logger.step)
             break
 
 
@@ -94,9 +98,14 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-2)
     parser.add_argument('--num_epochs', type=int, default=1)
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--gpu', type=str, default="0,1,2,3")
     args = parser.parse_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
     set_random_seeds(args.seed)
+
+    args.gpu = list(map(int, args.gpu.split(",")))
+
+    torch.cuda.set_device(args.gpu[0])
 
     full_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data.csv'), sep="\t")
     train_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data_train.csv'), sep="\t")
@@ -107,17 +116,17 @@ if __name__ == "__main__":
     model = DKT2(int(full_df["item_id"].max()) + 1, int(full_df["skill_id"].max()) + 1, args.hid_size,
                  args.embed_size, args.num_hid_layers, args.drop_prob)
     optimizer = Adam(model.parameters(), lr=args.lr)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{args.gpu[0]}" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
-        print('using {} GPUs'.format(torch.cuda.device_count()))
-        model = nn.DataParallel(model)
+        print('using {} GPUs'.format(len(args.gpu)))
+        model = nn.DataParallel(model, device_ids=args.gpu)
     model.cuda()
 
     # Reduce batch size until it fits on GPU
     while True:
         try:
             # Train
-            param_str = f"{args.dataset}_{args.hid_size}_{args.num_hid_layers}"
+            param_str = f"{args.dataset}_{args.hid_size}_{args.num_hid_layers}_{args.lr}_{args.drop_prob}"
             logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_dkt', run_name=param_str, model_args=args)
             saver = Saver(args.savedir, param_str)
             train(train_data, val_data, model, optimizer, logger, saver, args.num_epochs, args.batch_size)
