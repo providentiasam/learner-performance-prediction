@@ -46,7 +46,7 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
             skill_ids = skill_ids.cuda()
             preds = model(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids)
 
-            loss = compute_loss(preds, labels.to(device), criterion)
+            loss = compute_loss(preds, labels.cuda(), criterion)
             train_auc = compute_auc(torch.sigmoid(preds).detach().cpu(), labels)
 
             model.zero_grad()
@@ -87,25 +87,23 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DKT.')
-    parser.add_argument('--dataset', type=str, default='ednet_small')
+    parser.add_argument('--dataset', type=str, default='ednet_medium')
     parser.add_argument('--logdir', type=str, default='runs/dkt')
     parser.add_argument('--savedir', type=str, default='save/dkt')
-    parser.add_argument('--hid_size', type=int, default=100)
+    parser.add_argument('--hid_size', type=int, default=50)
     parser.add_argument('--embed_size', type=int, default=100)
-    parser.add_argument('--num_hid_layers', type=int, default=2)
-    parser.add_argument('--drop_prob', type=float, default=0.5)
+    parser.add_argument('--num_hid_layers', type=int, default=1)
+    parser.add_argument('--drop_prob', type=float, default=0.25)
     parser.add_argument('--batch_size', type=int, default=100)
-    parser.add_argument('--lr', type=float, default=1e-2)
-    parser.add_argument('--num_epochs', type=int, default=1)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--gpu', type=str, default="0,1,2,3")
+    parser.add_argument('--gpu', type=str, default="0,3")
     args = parser.parse_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     set_random_seeds(args.seed)
 
     args.gpu = list(map(int, args.gpu.split(",")))
-
-    torch.cuda.set_device(args.gpu[0])
 
     full_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data.csv'), sep="\t")
     train_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data_train.csv'), sep="\t")
@@ -116,10 +114,9 @@ if __name__ == "__main__":
     model = DKT2(int(full_df["item_id"].max()) + 1, int(full_df["skill_id"].max()) + 1, args.hid_size,
                  args.embed_size, args.num_hid_layers, args.drop_prob)
     optimizer = Adam(model.parameters(), lr=args.lr)
-    device = torch.device(f"cuda:{args.gpu[0]}" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
         print('using {} GPUs'.format(len(args.gpu)))
-        model = nn.DataParallel(model, device_ids=args.gpu)
+        model = nn.DataParallel(model)
     model.cuda()
 
     # Reduce batch size until it fits on GPU

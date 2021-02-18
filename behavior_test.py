@@ -34,10 +34,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Behavioral Testing")
     parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="saint")
+        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="dkt")
     parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="best")
+    parser.add_argument("--filename", type=str, default="temp")
     parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
@@ -141,7 +141,7 @@ if __name__ == "__main__":
                 train_split=1.0, stride=1)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
-        bt_test_batch = prepare_batches(bt_test_data, 10000, False)
+        bt_test_batch = prepare_batches(bt_test_data, 100, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', model_name=args.model)
         bt_test_df['model_pred'] = bt_test_preds
         if last_one_only:

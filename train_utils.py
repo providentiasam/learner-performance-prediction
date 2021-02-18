@@ -56,7 +56,7 @@ def get_data(df, train_split=0.8, randomize=True, model_name=None):
         torch.tensor(u_df["correct"].values, dtype=torch.long)
         for _, u_df in df.groupby("user_id")
     ]
-    if model_name is None:
+    if model_name is None or 'dkt':
         item_inputs = [
             torch.cat((torch.zeros(1, dtype=torch.long), i))[:-1] for i in item_ids
         ]
