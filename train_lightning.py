@@ -245,26 +245,27 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=True)
     parser.add_argument("--project", type=str, default='bt_lightning2')
+    parser.add_argument("--dataset", type=str, default="ednet")
     parser.add_argument("--model", type=str, default='sakt')
     parser.add_argument("--name", type=str)
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_epochs", type=int, default=10)
+    parser.add_argument("--num_epochs", type=int, default=20)
     parser.add_argument("--train_batch", type=int, default=256)
-    parser.add_argument("--test_batch", type=int, default=128)
+    parser.add_argument("--test_batch", type=int, default=512)
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--lr", type=float, default=0.003)
-    parser.add_argument("--gpu", type=str, default="6,7")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--device", type=str, default="gpu")
-    parser.add_argument("--layer_count", type=int, default=3)
-    parser.add_argument("--head_count", type=int, default=16)
+    parser.add_argument("--layer_count", type=int, default=4)
+    parser.add_argument("--head_count", type=int, default=10)
     parser.add_argument("--warmup_step", type=int, default=500)
-    parser.add_argument("--dim_model", type=int, default=128)
-    parser.add_argument("--dim_ff", type=int, default=512)
-    parser.add_argument("--seq_len", type=int, default=100)
-    parser.add_argument("--dropout_rate", type=float, default=0.2)
-    parser.add_argument("--dataset", type=str, default="ednet_small")
-    parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--dim_model", type=int, default=200)
+    parser.add_argument("--dim_ff", type=int, default=400)
+    parser.add_argument("--seq_len", type=int, default=200)
+    parser.add_argument("--dropout_rate", type=float, default=0.1)
+    
+    parser.add_argument("--patience", type=int, default=30)
     parser.add_argument("--accel", type=str, default='dp')
     # for debugging
     parser.add_argument("--limit_train_batches", type=float, default=1.0)
@@ -310,7 +311,7 @@ if __name__ == "__main__":
 
     checkpoint_callback = ModelCheckpoint(
         monitor="val_auc",
-        dirpath=f"save/saint/{args.dataset}",
+        dirpath=f"save/{args.model}/{args.dataset}",
         filename=f"{args.name}",
         mode="max",
     )
@@ -331,9 +332,7 @@ if __name__ == "__main__":
         limit_test_batches=args.limit_test_batches,
     )
     # initialize wandb
-    if args.use_wandb:
-        wandb.init(project=args.project, name=args.name, config=args)
-        print('wandb init')
+
     while True:
         try:
             datamodule = DataModule(args)
@@ -342,6 +341,11 @@ if __name__ == "__main__":
         except RuntimeError as e:
             print(e)
             args.train_batch = args.train_batch // 2
+            wandb.log({"Train Batch": args.train_batch},
+                step=model.global_step + 1,
+            )
+            if args.train_batch < 20:
+                assert False
 
 
     # validation results

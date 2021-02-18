@@ -9,7 +9,8 @@ from models.model_sakt2 import SAKT
 
 import pickle
 from train_utils import get_data, get_chunked_data, prepare_batches, eval_batches
-from train_saint import SAINT, DataModule, predict_saint
+from train_lightning import DataModule, predict_saint
+from models.model_lightning import SAKT, SAINT
 
 from bt_case_perturbation import (
     gen_perturbation, test_perturbation,
@@ -22,7 +23,7 @@ from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary_saint_ednet_medium.csv'
+SUMMARY_PATH = './summary_saint_sakt_lightning.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -31,9 +32,9 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet")
+    parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt", "saint"], default="sakt")
+        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="saint")
     parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="best")
@@ -45,13 +46,16 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # 1. LOAD PRE-TRAINED MODEL + EXP ARGS - {SAINT, DKT, BESTLR, SAKT}
-    if args.model == 'saint':
+    if args.model in {'saint', 'sakt'}:
         checkpoint_path = f'./save/{args.model}/{args.dataset}/' + args.filename + '.ckpt'
         with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'rb') as file:
             model_config = argparse.Namespace(**pickle.load(file))
         print(model_config)
-        model = SAINT.load_from_checkpoint(checkpoint_path, config=model_config\
-            ).to(torch.device("cuda"))
+        model_config.project = 'bt_bt'
+        if args.model.startswith('saint'):
+            model = SAINT.load_from_checkpoint(checkpoint_path, config=model_config).cuda()
+        else:
+            model = SAKT.load_from_checkpoint(checkpoint_path, config=model_config).cuda()
         model_seq_len = vars(model.config)['seq_len']
         model.eval()
     else:
@@ -90,7 +94,7 @@ if __name__ == "__main__":
     if os.path.exists(bt_test_path):
         print("Loading existing bt test data file.")
         with open(bt_test_path, 'rb') as file:
-            bt_test_df = pickle.load(file)
+            bt_test_df, other_info = pickle.load(file)
     else:
         test_df = pd.read_csv(
             os.path.join("data", args.dataset, "preprocessed_data_test.csv"), sep="\t"
@@ -109,17 +113,16 @@ if __name__ == "__main__":
         }
         bt_test_df, other_info = gen_funcs[args.test_type](test_df, **test_kwargs)
         with open(bt_test_path, 'wb+') as file:
-            pickle.dump(bt_test_df, file)
+            pickle.dump((bt_test_df, other_info), file)
         del test_df
-
 
 
     # 3. FEED TEST DATA.
     # In: bt_test_df
     # Out: bt_test_df with 'model_pred' column.
-    if args.model == 'saint':
+    if args.model in {'saint', 'sakt'}:
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
-            last_one_only=last_one_only, overwrite_test_batch=10000)
+            last_one_only=last_one_only, overwrite_test_batch=1000)
         if 0:  # no multi-gpu
             bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
         else:  # use multi-gpu: dp only
@@ -128,11 +131,12 @@ if __name__ == "__main__":
                 auto_select_gpus=True, callbacks=[], max_steps=0)
             trainer.test(model=model, datamodule=datamodule)
             bt_test_preds = model.preds[0]
+            bt_test_labels = model.labels[0]
         if last_one_only:
             bt_test_df = bt_test_df.groupby('user_id').last()
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
-        if args.model == 'sakt': 
+        if args.model == 'sakt_legacy': 
             bt_test_data, _ = get_chunked_data(bt_test_df, max_length=400, \
                 train_split=1.0, stride=1)
         else:
@@ -163,7 +167,9 @@ if __name__ == "__main__":
     result_dict = {}
     eval_col = 'test_measure'
     result_df['all'] = 'all'
-    result_df.to_csv(f'./results/{args.dataset}_{args.test_type}_{args.model}.csv')
+    result_df_path = f'./results/{args.dataset}_{args.test_type}_{args.model}.pkl'
+    with open(result_df_path, 'wb+') as file:
+        pickle.dump(result_df, file)
     for group_key in groupby_key:
         result_dict[group_key] = result_df.groupby(group_key)[eval_col].describe()
     
@@ -173,7 +179,9 @@ if __name__ == "__main__":
     metric_df.index.names = ['group_by', 'group_tag']
     try:
         metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
+        wandb.log({'bt auc': metric_df['auc'][('all', 'all')]}, step=1)
     except Exception as e:
+        print(e)
         pass
     for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
         metric_df[var] = vars(args)[var]

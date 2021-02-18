@@ -159,8 +159,8 @@ if __name__ == "__main__":
             full_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data.csv'), sep="\t")
             train_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_train.csv'), sep="\t")
             test_df = pd.read_csv(os.path.join('data', dataset, 'preprocessed_data_test.csv'), sep="\t")
-            setup_page.loc[setup_index, 'logdir'] = 'runs/sakt/' + dataset + '/'
-            setup_page.loc[setup_index, 'savedir'] = 'save/sakt/' + dataset + '/'
+            setup_page.loc[setup_index, 'logdir'] = 'runs/sakt_legacy/' + dataset + '/'
+            setup_page.loc[setup_index, 'savedir'] = 'save/sakt_legacy/' + dataset + '/'
             args = setup_page.loc[setup_index]
             stop_experiment = False # Stop current setup for whatever reason possible.
             if args[[f'test{i+1}' for i in range(REPEAT)]].notnull().all():

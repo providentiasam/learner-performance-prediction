@@ -80,10 +80,13 @@ class LightningKT(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        if config.use_wandb:
+            wandb.init(project=config.project, name=config.name, config=config)
         self.val_auc = 0
         self.best_val_auc = 0
         self.best_step = -1
         self.test_auc = 0
+        self.epoch = 0
         self.preds = []
         self.labels = []
 
@@ -104,22 +107,15 @@ class LightningKT(pl.LightningModule):
             "interval": "step",
             "frequency": 1,
         }
+        self.optimizer = optimizer
+        self.scheduler = scheduler
         return [optimizer], [scheduler]
-
 
     def training_step(self, train_batch, batch_idx):
         train_res = self.compute_all_losses(train_batch)
         loss = train_res["loss"]  # (B, L)
         mask = train_batch["pad_mask"]
         loss = torch.sum(loss * mask) / torch.sum(mask)
-        # if (
-        #     self.config.use_wandb
-        #     and self.global_step % self.config.val_check_steps == 0
-        # ):
-        #     # wandb log
-        #     wandb.log({"Train loss": loss.item()}, step=self.global_step)
-        
-        # return {"loss": loss.mean()}
         return loss
 
     def training_epoch_end(self, training_step_outputs):
@@ -129,10 +125,13 @@ class LightningKT(pl.LightningModule):
             losses.append(out["loss"])
         epoch_loss = sum(losses) / len(losses)
         print(f"Epoch Train loss: {epoch_loss}")
+        self.epoch += 1
         if self.config.use_wandb:
             wandb.log(
                 {
-                    "Train loss": epoch_loss
+                    "Train loss": epoch_loss,
+                    "Learning rate": self.optimizer.param_groups[0]['lr'],
+                    "Epoch": self.epoch
                 },
                 step=self.global_step + 1,
             )
@@ -215,7 +214,11 @@ class LightningKT(pl.LightningModule):
         self.preds.append(preds.cpu())
         self.labels.append(labels.cpu())
         epoch_loss = (sum(losses) / len(losses)).mean()
-        epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
+        try:
+            epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
+        except ValueError as e:
+            print(e)
+            epoch_auc = 0
 
         print(f"Test loss: {epoch_loss:.4f}, auc: {epoch_auc:.4f}")
         self.test_auc = epoch_auc
