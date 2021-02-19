@@ -19,6 +19,7 @@ from bt_case_perturbation import (
 from bt_case_reconstruction import gen_knowledge_state, test_knowledge_state, test_simple
 from bt_case_repetition import gen_repeated_feed, test_repeated_feed
 from bt_case_question_prior import gen_question_prior, test_question_prior
+from bt_case_continuity import gen_continuity
 from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
@@ -109,6 +110,7 @@ if __name__ == "__main__":
             'deletion': gen_perturbation,
             'replacement': gen_perturbation,
             'question_prior': gen_question_prior,
+            'continuity': gen_continuity,
             'original': lambda x: (x, None)
         }
         bt_test_df, other_info = gen_funcs[args.test_type](test_df, **test_kwargs)
@@ -157,6 +159,7 @@ if __name__ == "__main__":
         'deletion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'replacement': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'question_prior': lambda x: test_question_prior(x, item_meta=other_info, test_name=args.model),
+        'continuity': test_simple,
         'original': test_simple
     }
     result_df, summary_df = test_funcs[args.test_type](bt_test_df)
