@@ -1,12 +1,24 @@
 import pandas as pd
 import numpy as np
 import random
+from sklearn.metrics import roc_auc_score, accuracy_score
 
 
-def test_simple(bt_test_df, testcol='testpoint'):
-    bt_test_df['test_measure'] = (bt_test_df[testcol] == bt_test_df['model_pred'].round())
-    groupby_key = ['all', testcol]
-    return bt_test_df, groupby_key
+def test_simple(result_df):
+    summary_dict = {}
+    df_dicts = {
+        'all': result_df,
+        'pos': result_df.loc[(result_df['correct'] == 1)],
+        'neg': result_df.loc[(result_df['correct'] == 0)]}
+    for tag, df_ in df_dicts.items():
+        if tag == 'all':
+            summary_dict[(tag, '', 'auc')] = roc_auc_score(df_['correct'], df_['model_pred'])
+        summary_dict[(tag, '', 'acc')] = accuracy_score(df_['correct'], df_['model_pred'].round())
+    summary_srs = pd.Series(summary_dict)
+    summary_srs.index = pd.MultiIndex.from_tuples(list(summary_srs.index), names=['groupby', 'group', 'metric'])
+    summary_df = summary_srs.unstack('metric')
+    
+    return result_df, summary_df
 
 
 def test_knowledge_state(bt_test_df, testcol='testpoint'):

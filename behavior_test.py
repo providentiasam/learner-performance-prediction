@@ -32,10 +32,10 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="spanish")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="saint")
-    parser.add_argument("--test_type", type=str, default="repetition")
+        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="dkt")
+    parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="best")
     parser.add_argument("--gpu", type=str, default="0,1,2,3")
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     # Out: bt_test_df with 'model_pred' column.
     if args.model in {'saint', 'sakt'}:
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
-            last_one_only=last_one_only, overwrite_test_batch=15000)
+            last_one_only=last_one_only, overwrite_test_batch=5000)
         if 0:  # no multi-gpu
             bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
         else:  # use multi-gpu: dp only
@@ -142,7 +142,7 @@ if __name__ == "__main__":
                 train_split=1.0, stride=1)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
-        bt_test_batch = prepare_batches(bt_test_data, 3000, False)
+        bt_test_batch = prepare_batches(bt_test_data, 256, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', model_name=args.model)
         bt_test_df['model_pred'] = bt_test_preds
         if last_one_only:
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         'deletion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'replacement': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'question_prior': lambda x: test_question_prior(x, item_meta=other_info, test_name=args.model),
-        'original': lambda x: test_simple(x, testcol='correct')
+        'original': test_simple
     }
     result_df, summary_df = test_funcs[args.test_type](bt_test_df)
         # result_df: bt_test_df appended with 'test_measure' column or any additional test-case-specific info.
