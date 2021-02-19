@@ -183,6 +183,4 @@ if __name__ == "__main__":
     summary_df = summary_df.reset_index(drop=False)
     new_summary = pd.concat([summary_csv, summary_df], axis=0).reset_index(drop=True)
     new_summary.to_csv(SUMMARY_PATH)
-    print(new_summary.tail()
-
-
+    print(new_summary.tail())
