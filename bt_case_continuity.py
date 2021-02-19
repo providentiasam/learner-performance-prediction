@@ -3,9 +3,10 @@ import numpy as np
 import random
 
 
-def gen_continuity(data_df, num_sample_users=1000, max_seq_len=100, jump_step=5, num_items=50):
+def gen_continuity(data_df, num_sample_users=2, max_seq_len=100, jump_step=5, num_items=50):
+    item2skill = data_df.groupby('item_id').first()['skill_id']
     # get N questions with max frequency in dataset
-    item_set = get_question_set(data_df[['item_id', 'skill_id']], num_items)
+    item_set = get_question_set(data_df['item_id'], num_items)
     groupby_df = data_df.groupby('user_id')
     user_candidates = []
     for user_id, user_df in groupby_df:
@@ -23,10 +24,10 @@ def gen_continuity(data_df, num_sample_users=1000, max_seq_len=100, jump_step=5,
         for interaction_idx in list(range(0, max_seq_len, jump_step)) + [max_seq_len]:
             sliced_seq = user_df.iloc[:interaction_idx]
             sliced_seq['cont_index'] = interaction_idx
-            for item in item_set:
+            for item_id in item_set:
                 new_row = user_df.iloc[0].copy() if interaction_idx == 0 else sliced_seq.iloc[-1].copy()
-                new_row['item_id'] = item[0]
-                new_row['skill_id'] = item[1]
+                new_row['item_id'] = item_id
+                new_row['skill_id'] = item2skill[item_id]
                 new_seq = pd.concat([sliced_seq.copy(), new_row], axis=0).reset_index(drop=True)
                 new_seq['user_id'] = virtual_user_id
                 virtual_user_id += 1
