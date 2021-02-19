@@ -4,6 +4,7 @@ from copy import deepcopy
 import random
 import numpy as np
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score, accuracy_score
 
 
 
@@ -27,7 +28,19 @@ def test_perturbation(bt_test_df, diff_threshold=0):
     result_df.loc[perturbed_idx, 'test_measure'] = \
         (result_df.loc[perturbed_idx, 'model_diff'] * result_df.loc[perturbed_idx, 'is_perturbed']) >= -diff_threshold
     groupby_key = ['all', 'is_perturbed']
-    return result_df, groupby_key
+    result_df['all'] = 'all'
+
+    result_df_ = result_df.loc[result_df['is_perturbed']!=0]
+    summary_dict = {}
+    for groupby_key in ['all', 'is_perturbed']:
+        for group, group_df in result_df_.groupby(groupby_key):
+            summary_dict[(groupby_key, group, 'auc')] = roc_auc_score(group_df['correct'], group_df['model_pred'])
+            summary_dict[(groupby_key, group, 'acc')] = accuracy_score(group_df['correct'], group_df['model_pred'].round())
+            summary_dict[(groupby_key, group, 'pass')] = group_df['test_measure'].astype(int).mean()
+    summary_srs = pd.Series(summary_dict)
+    summary_srs.index = pd.MultiIndex.from_tuples(list(summary_srs.index), names=['groupby', 'group', 'metric'])
+    summary_df = summary_srs.unstack('metric')
+    return result_df, summary_df
 
 
 def gen_perturbation(orig_df, perturb_func, **pf_args):

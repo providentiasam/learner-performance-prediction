@@ -92,7 +92,9 @@ class LightningKT(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr,)
-
+        self.optimizer = optimizer
+        if self.config.optimizer != 'noam':
+            return [optimizer], []
         def noam(step: int):
             step = max(1, step)
             warmup_steps = self.config.warmup_step
@@ -107,7 +109,7 @@ class LightningKT(pl.LightningModule):
             "interval": "step",
             "frequency": 1,
         }
-        self.optimizer = optimizer
+
         self.scheduler = scheduler
         return [optimizer], [scheduler]
 
@@ -231,6 +233,81 @@ class LightningKT(pl.LightningModule):
             "test_auc": epoch_auc
         }
 
+
+class DKT(LightningKT):
+    def __init__(self, config):
+        super().__init__(config)
+        self.embed = nn.ModuleDict()
+        
+        self.embed["qid"] = nn.Embedding(
+            config.num_item + 1, config.dim_model, padding_idx=0
+        )
+        self.embed["skill"] = nn.Embedding(
+            config.num_skill + 1, config.dim_model, padding_idx=0
+        )
+        # positional encoding
+        self.embed["pos"] = AbsoluteDiscretePositionalEncoding(
+            dim_emb=config.dim_model, max_len=config.seq_len, device=config.device
+        )
+        
+        self.lin_in = nn.Linear(config.dim_model*2, config.dim_model, 1)
+        self.lstm = nn.LSTM(config.dim_model, config.dim_model, config.layer_count, batch_first=True).cuda()
+
+        self.pre_generator = nn.Linear(config.dim_model * 2, config.dim_model)
+        self.pre_dropout = nn.Dropout(p=config.dropout_rate)
+        self.generator = nn.Linear(config.dim_model, 1)
+        self.dropout = nn.Dropout(p=config.dropout_rate)
+
+        # xavier initialization
+        for param in self.parameters():
+            if param.dim() > 1:
+                nn.init.xavier_uniform_(param)
+
+
+    def compute_all_losses(
+        self, batch_dict,
+    ):
+
+        device = self.config.device
+        timestamp = torch.arange(1, self.config.seq_len + 1).to(device)
+
+        obs_mask = batch_dict["pad_mask"].to(device)  # padding mask
+        query = self.embed["qid"](batch_dict["qid"].to(device))
+        query += self.embed["skill"](batch_dict["skill"].squeeze(-1).to(device))
+        
+        shifted_infos = {}
+        for info in ['qid', 'skill', 'is_correct']:
+            shifted_infos[info] = torch.cat(
+                [torch.zeros([batch_dict[info].size(0), 1]).long().to(device),
+                batch_dict[info][:, :-1].to(device)], -1)
+        input = self.embed["qid"](shifted_infos['qid'])
+        input += self.embed["skill"](shifted_infos['skill'].squeeze(-1).to(device))
+        input += self.embed["pos"](timestamp - 1).squeeze(0)
+        input = torch.cat([input, input], dim=-1)
+        input[..., : self.config.dim_model] *= torch.relu(shifted_infos["is_correct"] - 1).unsqueeze(-1)
+        input[..., self.config.dim_model:] *= (1 - torch.relu(shifted_infos["is_correct"] - 1)).unsqueeze(-1)
+        input = self.lin_in(input) # B L D
+
+        query = query.transpose(0, 1)  # (L, B, D)
+        input = input.transpose(0, 1)
+
+        # self.lstm.flatten_parameters()
+        x, _ = self.lstm(input)
+        x = self.pre_generator(torch.cat([self.pre_dropout(x), query], dim=-1))
+        x = self.generator(self.dropout(x)).squeeze(-1)
+
+        prediction = x.transpose(0, 1) # (B, L)
+        y = batch_dict["is_correct"].float().to(device)
+        ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), (2 - y))  # (B, L)
+
+        results = {
+            "loss": ce_loss,
+            "pred": prediction.detach(),
+        }
+        return results
+
+
+
 class SAINT(LightningKT):
     def __init__(self, config):
         super().__init__(config)
@@ -240,10 +317,6 @@ class SAINT(LightningKT):
         self.embed["qid"] = nn.Embedding(
             config.num_item + 1, config.dim_model, padding_idx=0
         )
-        if hasattr(config, "num_part"):
-            self.embed["part"] = nn.Embedding(
-                config.num_part + 1, config.dim_model, padding_idx=0
-            )
         self.embed["skill"] = nn.Embedding(
             config.num_skill + 1, config.dim_model, padding_idx=0
         )
@@ -361,7 +434,6 @@ class SAKT(LightningKT):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
-
 
     def compute_all_losses(
         self, batch_dict,

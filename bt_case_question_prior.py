@@ -40,13 +40,28 @@ def test_question_prior(
     test_name='default'
     ):
     all_df = pd.concat([bt_test_df, item_meta], axis=1)
+
     all_df['test_measure_diff'] = all_df['model_pred'].subtract(all_df['prob_correct']).abs()
     all_df['test_measure'] = spearmanr(all_df['model_pred'].values, all_df['prob_correct'].values)[0]
     all_df['test_measure_corr'] = all_df[['model_pred', 'prob_correct']].corr().iloc[0,1]
-    groupby_key = ['all']
+    summary_dict = {
+        'corr': all_df[['model_pred', 'prob_correct']].corr().iloc[0,1],
+        'rankcorr': spearmanr(all_df['model_pred'].values, all_df['prob_correct'].values)[0],
+        'probmae': all_df['model_pred'].subtract(all_df['prob_correct']).abs().mean()
+    }
+    summary_df = pd.Series(summary_dict).to_frame().T
+    summary_df['groupby'] = 'all'
+    summary_df['group'] = 'all'
+    
+    return all_df, summary_df
+
+
+if __name__ == '__main__':
+    import pickle
+    question_prior_test_path = 'ednet_medium_question_prior_dkt'
+    with open(f'./results/{question_prior_test_path}.pkl', 'rb') as file:
+        all_df = pickle.load(file)
+    all_df = pd.read_csv('./results/')
     all_df.plot(kind='scatter', x='prob_correct', y='model_pred')
-    plt.savefig(f'./results/{test_name}_scatter_plot.png')
+    plt.savefig(f'./results/{question_prior_test_path}.png')
     plt.close()
-    return all_df, groupby_key
-
-

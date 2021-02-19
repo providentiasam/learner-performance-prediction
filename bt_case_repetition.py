@@ -2,6 +2,8 @@ import pandas as pd
 import random
 from tqdm import tqdm
 import pickle
+from sklearn.metrics import roc_auc_score, accuracy_score
+
 
 def gen_repeated_feed(
     data_df, 
@@ -34,10 +36,22 @@ def gen_repeated_feed(
     return total_df, {}
 
 
-def test_repeated_feed(bt_test_df):
-    # bt_test_df['test_measure'] = (bt_test_df[testcol] == bt_test_df['model_pred'].round())
-    groupby_key = ['all']
-    return bt_test_df, groupby_key
+def test_repeated_feed(result_df, repeat_freq=50):
+    result_df['seq_ind'] = result_df.index % repeat_freq
+    summary_dict = {}
+    for seq_thres in [5, 10, repeat_freq]:
+        df_dicts = {
+            'all': result_df.loc[(result_df['seq_ind'] < seq_thres)],
+            'pos': result_df.loc[(result_df['seq_ind'] < seq_thres) & (result_df['correct'] == 1)],
+            'neg': result_df.loc[(result_df['seq_ind'] < seq_thres) & (result_df['correct'] == 0)]}
+        for tag, df_ in df_dicts.items():
+            if tag == 'all':
+                summary_dict[(tag, f'{seq_thres}', 'auc')] = roc_auc_score(df_['correct'], df_['model_pred'])
+            summary_dict[(tag, f'{seq_thres}', 'acc')] = accuracy_score(df_['correct'], df_['model_pred'].round())
+    summary_srs = pd.Series(summary_dict)
+    summary_srs.index = pd.MultiIndex.from_tuples(list(summary_srs.index), names=['groupby', 'group', 'metric'])
+    summary_df = summary_srs.unstack('metric')
+    return bt_test_df, summary_df
 
 
 if __name__ == '__main__':

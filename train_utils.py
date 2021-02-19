@@ -14,7 +14,6 @@ def get_dkt1_preds(preds, item_ids, skill_ids, labels):
     elif skill_ids is not None:
         skill_ids = skill_ids[labels >= 0]
         preds = preds[torch.arange(preds.size(0)), skill_ids]
-
     return preds
 
 
@@ -90,12 +89,12 @@ def get_data(df, train_split=0.8, randomize=True, model_name=None):
         zip(item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
     )
 
-    if randomize:
-        shuffle(data)
-
     # Train-test split across users
     train_size = int(train_split * len(data))
     train_data, val_data = data[:train_size], data[train_size:]
+    
+    if randomize:
+        shuffle(train_data)
     return train_data, val_data
 
 

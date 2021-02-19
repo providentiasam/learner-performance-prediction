@@ -17,13 +17,13 @@ from bt_case_perturbation import (
     perturb_insertion_random, perturb_delete_random, perturb_replace_random,
 )
 from bt_case_reconstruction import gen_knowledge_state, test_knowledge_state, test_simple
-from bt_case_repetition import gen_repeated_feed
+from bt_case_repetition import gen_repeated_feed, test_repeated_feed
 from bt_case_question_prior import gen_question_prior, test_question_prior
 from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary_saint_sakt_lightning.csv'
+SUMMARY_PATH = './summary_final.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -32,13 +32,13 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet_medium")
+    parser.add_argument("--dataset", type=str, default="spanish")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="dkt")
-    parser.add_argument("--test_type", type=str, default="original")
+        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="saint")
+    parser.add_argument("--test_type", type=str, default="repetition")
     parser.add_argument("--load_dir", type=str, default="./save/")
-    parser.add_argument("--filename", type=str, default="temp")
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
+    parser.add_argument("--filename", type=str, default="best")
+    parser.add_argument("--gpu", type=str, default="0,1,2,3")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
     if args.model == 'saint':
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     last_one_only = {
         'reconstruction': True, 'repetition': False, 'insertion': False,
         'deletion': False, 'replacement': False, 'original': False, 
-        'question_prior': False
+        'question_prior': False, 'continuity': True
     }[args.test_type]
 
     # 2. GENERATE TEST DATA.
@@ -112,8 +112,9 @@ if __name__ == "__main__":
             'original': lambda x: (x, None)
         }
         bt_test_df, other_info = gen_funcs[args.test_type](test_df, **test_kwargs)
-        with open(bt_test_path, 'wb+') as file:
-            pickle.dump((bt_test_df, other_info), file)
+        if args.test_type != 'original':
+            with open(bt_test_path, 'wb+') as file:
+                pickle.dump((bt_test_df, other_info), file)
         del test_df
 
 
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     # Out: bt_test_df with 'model_pred' column.
     if args.model in {'saint', 'sakt'}:
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
-            last_one_only=last_one_only, overwrite_test_batch=1000)
+            last_one_only=last_one_only, overwrite_test_batch=15000)
         if 0:  # no multi-gpu
             bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
         else:  # use multi-gpu: dp only
@@ -136,12 +137,12 @@ if __name__ == "__main__":
             bt_test_df = bt_test_df.groupby('user_id').last()
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
-        if args.model == 'sakt_legacy': 
+        if args.model == 'sakt_legacy' or (args.model =='dkt' and args.dataset == 'ednet'): 
             bt_test_data, _ = get_chunked_data(bt_test_df, max_length=400, \
                 train_split=1.0, stride=1)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
-        bt_test_batch = prepare_batches(bt_test_data, 100, False)
+        bt_test_batch = prepare_batches(bt_test_data, 3000, False)
         bt_test_preds = eval_batches(model, bt_test_batch, 'cuda', model_name=args.model)
         bt_test_df['model_pred'] = bt_test_preds
         if last_one_only:
@@ -151,14 +152,14 @@ if __name__ == "__main__":
     # 4. CHECK PASS CONDITION AND RUN CASE-SPECIFIC ANALYSIS.
     test_funcs = {
         'reconstruction': test_knowledge_state,
-        'repetition': test_simple,
+        'repetition': test_repeated_feed,
         'insertion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'deletion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'replacement': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'question_prior': lambda x: test_question_prior(x, item_meta=other_info, test_name=args.model),
         'original': lambda x: test_simple(x, testcol='correct')
     }
-    result_df, groupby_key = test_funcs[args.test_type](bt_test_df)
+    result_df, summary_df = test_funcs[args.test_type](bt_test_df)
         # result_df: bt_test_df appended with 'test_measure' column or any additional test-case-specific info.
         # groupby_key: list of column names in result_df for 5's mutually exclusive subset-wise analysis.
 
@@ -170,26 +171,18 @@ if __name__ == "__main__":
     result_df_path = f'./results/{args.dataset}_{args.test_type}_{args.model}.pkl'
     with open(result_df_path, 'wb+') as file:
         pickle.dump(result_df, file)
-    for group_key in groupby_key:
-        result_dict[group_key] = result_df.groupby(group_key)[eval_col].describe()
-    
+    summary_df.to_csv(result_df_path.replace('.pkl', '_summary.csv'))
+    # summary content: (grouped) auc, acc, time
 
     #6. APPEND SUMMARY.
-    metric_df = pd.concat([y for _, y in result_dict.items()], axis=0, keys=result_dict.keys())
-    metric_df.index.names = ['group_by', 'group_tag']
-    try:
-        metric_df.loc[('all', 'all'), 'auc'] = roc_auc_score(result_df["correct"], result_df['model_pred'])
-        wandb.log({'bt auc': metric_df['auc'][('all', 'all')]}, step=1)
-    except Exception as e:
-        print(e)
-        pass
-    for var in ['dataset', 'model', 'test_type', 'diff_threshold']:
-        metric_df[var] = vars(args)[var]
-    metric_df['time'] = str(pd.datetime.now()).split('.')[0]
-    metric_df = metric_df.reset_index(drop=False)
-    print(metric_df.loc[0])
-    new_summary = pd.concat([summary_csv, metric_df], axis=0).reset_index(drop=True)
+    # time, model, dataset, test type
+    summary_df['model'] = args.model
+    summary_df['dataset'] = args.dataset
+    summary_df['testtype'] = args.test_type
+    summary_df['time'] = str(pd.datetime.now()).split('.')[0]
+    summary_df = summary_df.reset_index(drop=False)
+    new_summary = pd.concat([summary_csv, summary_df], axis=0).reset_index(drop=True)
     new_summary.to_csv(SUMMARY_PATH)
-    print(new_summary)
+    print(new_summary.tail()
 
 
