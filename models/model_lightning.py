@@ -103,7 +103,6 @@ class LightningKT(pl.LightningModule):
                 step ** (-0.5), step * warmup_steps ** (-1.5)
             )
             return scale
-
         scheduler = LambdaLR(optimizer=optimizer, lr_lambda=noam)
         scheduler = {
             "scheduler": scheduler,
@@ -143,6 +142,7 @@ class LightningKT(pl.LightningModule):
                 step=self.global_step + 1,
             )
 
+
     def validation_step(self, val_batch, batch_idx):
         val_res = self.compute_all_losses(val_batch)
         loss = val_res["loss"]  # (B, L)
@@ -155,6 +155,7 @@ class LightningKT(pl.LightningModule):
         pred = pred[nonzeros].sigmoid()
         label = label[nonzeros].long()
         return {"loss": loss, "pred": pred, "label": label}
+
 
     def validation_epoch_end(self, validation_step_outputs):
         # summarize epoch results
@@ -290,19 +291,15 @@ class DKT(LightningKT):
         if self.embed_pos:
             input = input + input_pos
         input = torch.cat([input, input], dim=-1)
-        input[..., : self.config.dim_model] *= torch.relu(shifted_infos["is_correct"] - 1).unsqueeze(-1)
-        input[..., self.config.dim_model:] *= (1 - torch.relu(shifted_infos["is_correct"] - 1)).unsqueeze(-1)
+        input[..., : self.config.dim_model] *= (1 - (shifted_infos["is_correct"] != 1).int()).unsqueeze(-1)
+        input[..., self.config.dim_model:] *= (1 - (shifted_infos["is_correct"] != 2).int()).unsqueeze(-1)
 
-        query = query.transpose(0, 1)  # (L, B, D)
-        input = input.transpose(0, 1)
         self.lstm.flatten_parameters()
         x, _ = self.lstm(input)
         x = self.pre_generator(torch.cat([self.dropout(x), query], dim=-1))
         x = self.generator(torch.relu(self.dropout(x))).squeeze(-1)
-
-        prediction = x.transpose(0, 1) # (B, L)
+        prediction = x
         y = batch_dict["is_correct"].float().to(device)
-        
         ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), (2 - y))  # (B, L)
 
         results = {
@@ -392,7 +389,6 @@ class SAINT(LightningKT):
         prediction = self.generator(transformer_output).squeeze(-1)  # (B, L)
         y = batch_dict["is_correct"].float().to(device)
         ce_loss = nn.BCEWithLogitsLoss(reduction="none")(prediction.to(device), (2 - y) if not FIX_SUBTWO else y)  # (B, L)
-
         results = {
             "loss": ce_loss,
             "pred": prediction.detach(),
@@ -462,8 +458,8 @@ class SAKT(LightningKT):
         keyval += self.embed["skill"](shifted_infos['skill'].squeeze(-1).to(device))
         keyval += self.embed["enc_pos"](timestamp - 1).squeeze(0)
         keyval = torch.cat([keyval, keyval], dim=-1)
-        keyval[..., : self.config.dim_model] *= torch.relu(shifted_infos["is_correct"] - 1).unsqueeze(-1)
-        keyval[..., self.config.dim_model:] *= (1 - torch.relu(shifted_infos["is_correct"] - 1)).unsqueeze(-1)
+        keyval[..., : self.config.dim_model] *= (1 - (shifted_infos["is_correct"] != 1).int()).unsqueeze(-1)
+        keyval[..., self.config.dim_model:] *= (1 - (shifted_infos["is_correct"] != 2).int()).unsqueeze(-1)
         keyval = self.lin_in(keyval) # B L D
 
         query = query.transpose(0, 1)  # (L, B, D)

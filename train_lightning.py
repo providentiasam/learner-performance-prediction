@@ -228,6 +228,7 @@ def predict_saint(saint_model, dataloader, return_labels=False):
         infer_mask = batch["infer_mask"]
         nonzeros = torch.nonzero(infer_mask, as_tuple=True)
         label = (2 - batch["is_correct"]) if not FIX_SUBTWO else batch["is_correct"]
+        # label = batch['is_correct']
         labels.append(label[nonzeros].long())
         pred = pred[nonzeros].sigmoid()
         preds.append(pred)
@@ -252,27 +253,27 @@ if __name__ == "__main__":
     parser.add_argument("--use_wandb", action="store_true", default=True)
     parser.add_argument("--project", type=str, default='bt_lightning2')
     parser.add_argument("--dataset", type=str, default="ednet_small")
-    parser.add_argument("--model", type=str, default='dkt')
+    parser.add_argument("--model", type=str, default='sakt')
     parser.add_argument("--name", type=str)
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=0)
-    parser.add_argument("--num_epochs", type=int, default=1)
-    parser.add_argument("--train_batch", type=int, default=2048)
+    parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--train_batch", type=int, default=256)
     parser.add_argument("--test_batch", type=int, default=512)
     parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--gpu", type=str, default="0,1,2,3")
     parser.add_argument("--device", type=str, default="gpu")
 
-    parser.add_argument("--layer_count", type=int, default=1)
-    parser.add_argument("--dim_model", type=int, default=50)
-    parser.add_argument("--seq_len", type=int, default=5000)
+    parser.add_argument("--layer_count", type=int, default=2)
+    parser.add_argument("--dim_model", type=int, default=100)
+    parser.add_argument("--seq_len", type=int, default=200)
     parser.add_argument("--stride", type=int, default=100)
     
     parser.add_argument("--optimizer", type=str, default='adam')
-    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--warmup_step", type=int, default=500)
     
-    parser.add_argument("--dim_ff", type=int, default=400)
+    parser.add_argument("--dim_ff", type=int, default=200)
     parser.add_argument("--head_count", type=int, default=10)
 
     parser.add_argument("--dropout_rate", type=float, default=0.5)
