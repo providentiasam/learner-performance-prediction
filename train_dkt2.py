@@ -30,13 +30,11 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
     criterion = nn.BCEWithLogitsLoss()
     metrics = Metrics()
     step = 0
-
     best_val_auc = 0.0
 
     val_batches = prepare_batches(val_data, batch_size, randomize=False)
     for epoch in range(num_epochs):
         train_batches = prepare_batches(train_data, batch_size)
-
         # Training
         for item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels in train_batches:
             item_inputs = item_inputs.cuda()
@@ -87,18 +85,20 @@ def train(train_data, val_data, model, optimizer, logger, saver, num_epochs, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train DKT.')
-    parser.add_argument('--dataset', type=str, default='ednet')
+    parser.add_argument('--dataset', type=str, default='ednet_small')
     parser.add_argument('--logdir', type=str, default='runs/dkt')
     parser.add_argument('--savedir', type=str, default='save/dkt')
     parser.add_argument('--hid_size', type=int, default=50)
-    parser.add_argument('--embed_size', type=int, default=100)
+    parser.add_argument('--embed_size', type=int, default=50)
     parser.add_argument('--num_hid_layers', type=int, default=1)
-    parser.add_argument('--drop_prob', type=float, default=0.25)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--num_epochs', type=int, default=20)
+    parser.add_argument('--drop_prob', type=float, default=0.5)
+    parser.add_argument('--batch_size', type=int, default=2048)
+    parser.add_argument('--lr', type=float, default=1e-2)
+    parser.add_argument('--num_epochs', type=int, default=1)
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--gpu', type=str, default="4,5,6,7")
+    parser.add_argument('--seq_len', type=int, default=400)
+    parser.add_argument('--stride', type=int, default=200)
+    parser.add_argument('--gpu', type=str, default="0,1,2,3")
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     set_random_seeds(args.seed)
@@ -110,9 +110,11 @@ if __name__ == "__main__":
     test_df = pd.read_csv(os.path.join('data', args.dataset, 'preprocessed_data_test.csv'), sep="\t")
 
     # train_data, val_data = get_data(train_df, train_split=0.8)
-    train_data, val_data = get_chunked_data(train_df, max_length=400, train_split=0.8, randomize=True, stride=200)
+    train_data, val_data = get_chunked_data(train_df, max_length=args.seq_len, \
+        train_split=0.8, randomize=True, stride=args.stride)
 
-    model = DKT2(int(full_df["item_id"].max()) + 1, int(full_df["skill_id"].max()) + 1, args.hid_size,
+    model = DKT2(int(full_df["item_id"].max()) + 1, \
+        int(full_df["skill_id"].max()) + 1, args.hid_size,
                  args.embed_size, args.num_hid_layers, args.drop_prob)
     optimizer = Adam(model.parameters(), lr=args.lr)
     if torch.cuda.device_count() > 1:
@@ -125,7 +127,7 @@ if __name__ == "__main__":
         try:
             # Train
             param_str = f"{args.dataset}_{args.hid_size}_{args.num_hid_layers}_{args.lr}_{args.drop_prob}"
-            logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_dkt', run_name=param_str, model_args=args)
+            logger = Logger(os.path.join(args.logdir, param_str), project_name='bt_lightning2', run_name=param_str, model_args=args)
             saver = Saver(args.savedir, param_str)
             train(train_data, val_data, model, optimizer, logger, saver, args.num_epochs, args.batch_size)
             break
@@ -137,7 +139,7 @@ if __name__ == "__main__":
 
     model = saver.load().cuda()
     # test_data, _ = get_data(test_df, train_split=1.0, randomize=False)
-    test_data, _ = get_chunked_data(test_df, max_length=400, train_split=1.0, randomize=False, stride=1)
+    test_data, _ = get_chunked_data(test_df, max_length=args.seq_len, train_split=1.0, randomize=False, stride=1)
     test_batches = prepare_batches(test_data, args.batch_size, randomize=False)
     test_preds = np.empty(0)
     correct_labels = np.empty(0)

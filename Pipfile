@@ -15,6 +15,7 @@ requests = "*"
 pytorch-lightning = "*"
 dill = "*"
 wandb = "*"
+seaborn = "*"
 
 [dev-packages]
 

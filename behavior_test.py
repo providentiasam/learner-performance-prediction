@@ -19,12 +19,12 @@ from bt_case_perturbation import (
 from bt_case_reconstruction import gen_knowledge_state, test_knowledge_state, test_simple
 from bt_case_repetition import gen_repeated_feed, test_repeated_feed
 from bt_case_question_prior import gen_question_prior, test_question_prior
-from bt_case_continuity import gen_continuity
+from bt_case_continuity import gen_continuity, test_continuity
 from utils import *
 import pytorch_lightning as pl
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-SUMMARY_PATH = './summary_final.csv'
+SUMMARY_PATH = './summary_FINAL.csv'
 
 if __name__ == "__main__":
     if not os.path.exists(SUMMARY_PATH):
@@ -33,13 +33,13 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--dataset", type=str, default="ednet")
     parser.add_argument("--model", type=str, \
         choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="dkt")
     parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="best")
-    parser.add_argument("--gpu", type=str, default="0,1,2,3")
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
     if args.model == 'saint':
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     last_one_only = {
         'reconstruction': True, 'repetition': False, 'insertion': False,
         'deletion': False, 'replacement': False, 'original': False, 
-        'question_prior': False, 'continuity': True
+        'question_prior': False, 'continuity': False
     }[args.test_type]
 
     # 2. GENERATE TEST DATA.
@@ -140,8 +140,8 @@ if __name__ == "__main__":
         bt_test_df['model_pred'] = bt_test_preds.cpu()
     else:
         if args.model == 'sakt_legacy' or (args.model =='dkt' and args.dataset == 'ednet'): 
-            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=400, \
-                train_split=1.0, stride=1)
+            bt_test_data, _ = get_chunked_data(bt_test_df, max_length=10000, \
+                train_split=1.0, stride=100)
         else:
             bt_test_data, _ = get_data(bt_test_df, train_split=1.0, randomize=False, model_name=args.model)
         bt_test_batch = prepare_batches(bt_test_data, 256, False)
@@ -159,7 +159,7 @@ if __name__ == "__main__":
         'deletion': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'replacement': lambda x: test_perturbation(x, diff_threshold=args.diff_threshold),
         'question_prior': lambda x: test_question_prior(x, item_meta=other_info, test_name=args.model),
-        'continuity': test_simple,
+        'continuity': test_continuity,
         'original': test_simple
     }
     result_df, summary_df = test_funcs[args.test_type](bt_test_df)
@@ -186,4 +186,4 @@ if __name__ == "__main__":
     summary_df = summary_df.reset_index(drop=False)
     new_summary = pd.concat([summary_csv, summary_df], axis=0).reset_index(drop=True)
     new_summary.to_csv(SUMMARY_PATH)
-    print(new_summary.tail())
+    print(summary_df)

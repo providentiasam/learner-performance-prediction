@@ -1,6 +1,8 @@
+from behavior_test import SUMMARY_PATH
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+
 
 def summary2table(df):
 
@@ -8,6 +10,32 @@ def summary2table(df):
 
 
 if __name__ == '__main__':
+
+    summary_df = pd.read_csv(SUMMARY_PATH, index_col=0)
+    summary_df[['groupby', 'group']] = summary_df[['groupby', 'group']].fillna('all')
+    summary_df = summary_df.loc[summary_df['group'] == 'all'].drop('time', axis=1)
+    summary_df = summary_df.loc[summary_df['groupby'] == 'all']
+    sep_dict = {}
+    table_dict = {}
+    for test_type, test_summary in summary_df.groupby('testtype'):
+        slim_summary = test_summary.dropna(axis=1, how='all')
+        slim_summary = slim_summary[[x for x in slim_summary.columns if \
+             slim_summary[x].dropna().unique().shape[0] != 1]]
+        sep_dict[test_type] = slim_summary
+        metric_columns = [x for x in slim_summary.columns if x not in {'model', 'dataset', 'groupby'}]
+        for m_col in metric_columns:
+            table_dict[(test_type, m_col)] = slim_summary.set_index(\
+                ['model', 'dataset'], drop=True)[m_col].dropna().unstack('dataset')
+            
+    writer = pd.ExcelWriter('./temp.xlsx', engine='openpyxl') 
+    for (test_type, metric), table_df in table_dict.items():
+        table_df.to_excel(writer, sheet_name='_'.join([test_type, metric]))
+    writer.save()
+
+
+
+    
+
     if 0:
         df_ms = pd.read_csv('./summary_ms.csv', index_col=0)
         df_yg = pd.read_csv('./summary_yg.csv', index_col=0)

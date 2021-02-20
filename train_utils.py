@@ -98,6 +98,13 @@ def get_data(df, train_split=0.8, randomize=True, model_name=None):
     return train_data, val_data
 
 
+def chunk(list, stride, max_length):
+    if list[0] is None:
+        return list
+    list = [window_split(elem, max_length, stride) for elem in list]
+    return [elem for sublist in list for elem in sublist]
+
+
 def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, stride=None, non_overlap_only=True):
     """Extract sequences from dataframe.
 
@@ -118,20 +125,12 @@ def get_chunked_data(df, max_length=200, train_split=0.8, randomize=False, strid
 
     stride = max_length if stride is None else stride
 
-    def chunk(list, stride):
-        if list[0] is None:
-            return list
-        list = [window_split(elem, max_length, stride) for elem in list]
-        return [elem for sublist in list for elem in sublist]
-    # TODO: Optimize below.
-    
     # Chunk sequences: '_inputs' go to key/value / '_ids' go to query
     lists = (item_inputs, skill_inputs, label_inputs, item_ids, skill_ids, labels)
-    chunked_lists = [chunk(l, stride) for l in tqdm(lists, desc='Chunk Data Type')]
+    chunked_lists = [chunk(l, stride, max_length) for l in tqdm(lists, desc='Chunk Data Type')]
     if non_overlap_only:
         non_overlap_from = [y for x in tqdm(labels, desc='Infrence Mask') for y in \
                             window_split(x, window_size=max_length, stride=stride, return_nonoverlap=True)]
-        # chunked_lists.append([y for x in item_inputs for y in window_split(x, max_length, stride)[1]])
         non_overlap_labels = []
         for org_label, index_begin in zip(chunked_lists[5], non_overlap_from):
             label_seq = org_label.detach().clone()

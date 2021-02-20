@@ -5,17 +5,6 @@ from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 class DKT2(nn.Module):
     def __init__(self, num_items, num_skills, hid_size, embed_size, num_hid_layers, drop_prob):
-        """Deep Knowledge Tracing (https://papers.nips.cc/paper/5654-deep-knowledge-tracing.pdf)
-        with some changes inspired by
-        Deep Hierarchical Knowledge Tracing (https://arxiv.org/pdf/1908.02146.pdf).
-        Arguments:
-            num_items (int): number of items
-            num_skills (int): number of knowledge points
-            hid_size (int): hidden layer dimension
-            embed_size (int): query embedding dimension
-            num_hid_layers (int): number of hidden layers
-            drop_prob (float): dropout probability
-        """
         super(DKT2, self).__init__()
         self.embed_size = embed_size
         self.item_embeds = nn.Embedding(num_items + 1, embed_size // 2, padding_idx=0)

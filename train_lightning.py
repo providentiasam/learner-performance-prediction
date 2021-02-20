@@ -106,23 +106,29 @@ def get_data(dataset, overwrite_test_df=None):
             del seqs["user_id"], seqs["timestamp"]
             data["test"][uid] = {key: list(x.values()) for key, x in seqs.items()}
 
-        if overwrite_test_df is None:
-            train_df = pd.read_csv(
-                os.path.join("data", dataset, "preprocessed_data_train.csv"), sep="\t")
-            train_val = {}
-            for (uid, _data) in tqdm(train_df.groupby("user_id"), desc='Prepare Train/Valid'):
-                seqs = _data.to_dict()
-                del seqs["user_id"], seqs["timestamp"]
-                train_val[uid] = {key: list(x.values()) for key, x in seqs.items()}
-            num_val_users = len(train_val) // 8
-            _train_users = list(train_val.keys())
-            np.random.shuffle(_train_users)
-            val_users = _train_users[:num_val_users]
-            for uid, seq in train_val.items():
-                if uid in val_users:
-                    data["val"][uid] = seq
-                else:
-                    data["train"][uid] = seq
+        if overwrite_test_df is not None:
+            return data
+
+        train_df = pd.read_csv(
+            os.path.join("data", dataset, "preprocessed_data_train.csv"), sep="\t")
+        train_val = {}
+        for (uid, _data) in tqdm(train_df.groupby("user_id"), desc='Prepare Train/Valid'):
+            seqs = _data.to_dict()
+            del seqs["user_id"], seqs["timestamp"]
+            train_val[uid] = {key: list(x.values()) for key, x in seqs.items()}
+        num_val_users = len(train_val) // 5
+        _train_users = list(train_val.keys())
+        np.random.shuffle(_train_users)
+        val_users = _train_users[:num_val_users]
+        for uid, seq in train_val.items():
+            if uid in val_users:
+                data["val"][uid] = seq
+            else:
+                data["train"][uid] = seq
+        for mode in modes:
+            with open(f"data/{dataset}/{mode}_data.pkl", "wb+") as file:
+                pkl.dump(data[mode], file)
+
     return data
 
 
@@ -131,7 +137,7 @@ class DataModule(pl.LightningDataModule):
         super().__init__()
         self.data = get_data(config.dataset, overwrite_test_df=overwrite_test_df)
         if overwrite_test_df is None:
-            train_data = InteractionDataset(self.data["train"], seq_len=config.seq_len,)
+            train_data = InteractionDataset(self.data["train"], seq_len=config.seq_len, stride=config.stride)
             val_data = InteractionDataset(self.data["val"], seq_len=config.seq_len, stride=10)
             self.train_gen = torch.utils.data.DataLoader(
                 dataset=train_data,
@@ -222,7 +228,7 @@ def predict_saint(saint_model, dataloader, return_labels=False):
         infer_mask = batch["infer_mask"]
         nonzeros = torch.nonzero(infer_mask, as_tuple=True)
         label = (2 - batch["is_correct"]) if not FIX_SUBTWO else batch["is_correct"]
-        labels.append(label[nonzeros])
+        labels.append(label[nonzeros].long())
         pred = pred[nonzeros].sigmoid()
         preds.append(pred)
     preds = torch.cat(preds, dim=0).view(-1)
@@ -245,25 +251,30 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=True)
     parser.add_argument("--project", type=str, default='bt_lightning2')
-    parser.add_argument("--dataset", type=str, default="ednet")
+    parser.add_argument("--dataset", type=str, default="ednet_small")
     parser.add_argument("--model", type=str, default='dkt')
     parser.add_argument("--name", type=str)
     parser.add_argument("--val_check_interval", type=float, default=1.0)
-    parser.add_argument("--random_seed", type=int, default=2)
-    parser.add_argument("--num_epochs", type=int, default=50)
-    parser.add_argument("--train_batch", type=int, default=512)
+    parser.add_argument("--random_seed", type=int, default=0)
+    parser.add_argument("--num_epochs", type=int, default=1)
+    parser.add_argument("--train_batch", type=int, default=2048)
     parser.add_argument("--test_batch", type=int, default=512)
     parser.add_argument("--num_workers", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--gpu", type=str, default="0,1,2,3")
     parser.add_argument("--device", type=str, default="gpu")
-    parser.add_argument("--layer_count", type=int, default=2)
-    parser.add_argument("--head_count", type=int, default=10)
-    parser.add_argument("--optimizer", type=str, default='adam')
-    parser.add_argument("--warmup_step", type=int, default=500)
+
+    parser.add_argument("--layer_count", type=int, default=1)
     parser.add_argument("--dim_model", type=int, default=50)
+    parser.add_argument("--seq_len", type=int, default=5000)
+    parser.add_argument("--stride", type=int, default=100)
+    
+    parser.add_argument("--optimizer", type=str, default='adam')
+    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--warmup_step", type=int, default=500)
+    
     parser.add_argument("--dim_ff", type=int, default=400)
-    parser.add_argument("--seq_len", type=int, default=1000)
+    parser.add_argument("--head_count", type=int, default=10)
+
     parser.add_argument("--dropout_rate", type=float, default=0.5)
     parser.add_argument("--patience", type=int, default=30)
     parser.add_argument("--accel", type=str, default='dp')
@@ -353,11 +364,17 @@ if __name__ == "__main__":
         model = SAINT.load_from_checkpoint(checkpoint_path, config=args).cuda()
     elif args.model == 'sakt':
         model = SAKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
+    elif args.model == 'dkt':
+        model = DKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
     model.eval()
     trainer.test(model=model, datamodule=datamodule)
     test_auc = trainer.callback_metrics["test_auc"]
     print(test_auc)
+
+    # sanity checking
+    model.eval()
     preds, labels = predict_saint(saint_model=model, dataloader=datamodule.test_gen, return_labels=True)
     print(roc_auc_score(labels.cpu(), preds.cpu()))
+
