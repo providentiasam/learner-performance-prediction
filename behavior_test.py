@@ -4,13 +4,10 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-from models.model_dkt2 import DKT2
-from models.model_sakt2 import SAKT
-
 import pickle
 from train_utils import get_data, get_chunked_data, prepare_batches, eval_batches
 from train_lightning import DataModule, predict_saint
-from models.model_lightning import SAKT, SAINT
+from models.model_lightning import SAKT, SAINT, DKT
 
 from bt_case_perturbation import (
     gen_perturbation, test_perturbation,
@@ -33,13 +30,13 @@ if __name__ == "__main__":
     print(summary_csv)
 
     parser = argparse.ArgumentParser(description="Behavioral Testing")
-    parser.add_argument("--dataset", type=str, default="ednet")
+    parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--model", type=str, \
-        choices=["lr", "dkt", "dkt1", "sakt_legacy", "sakt", "saint"], default="dkt")
+        choices=["lr", "dkt_legacy", "dkt1", "sakt_legacy", "sakt", "saint", "dkt"], default="sakt")
     parser.add_argument("--test_type", type=str, default="original")
     parser.add_argument("--load_dir", type=str, default="./save/")
     parser.add_argument("--filename", type=str, default="best")
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
+    parser.add_argument("--gpu", type=str, default="0,1,2,3")
     parser.add_argument("--diff_threshold", type=float, default=0)
     args = parser.parse_args()
     if args.model == 'saint':
@@ -47,7 +44,7 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # 1. LOAD PRE-TRAINED MODEL + EXP ARGS - {SAINT, DKT, BESTLR, SAKT}
-    if args.model in {'saint', 'sakt'}:
+    if args.model in {'saint', 'sakt', 'dkt'}:
         checkpoint_path = f'./save/{args.model}/{args.dataset}/' + args.filename + '.ckpt'
         with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'rb') as file:
             model_config = argparse.Namespace(**pickle.load(file))
@@ -55,8 +52,10 @@ if __name__ == "__main__":
         model_config.project = 'bt_bt'
         if args.model.startswith('saint'):
             model = SAINT.load_from_checkpoint(checkpoint_path, config=model_config).cuda()
-        else:
+        elif args.model.startswith('sakt'):
             model = SAKT.load_from_checkpoint(checkpoint_path, config=model_config).cuda()
+        elif args.model.startswith('dkt'):
+            model = DKT.load_from_checkpoint(checkpoint_path, config=model_config).cuda()
         model_seq_len = vars(model.config)['seq_len']
         model.eval()
     else:
@@ -123,9 +122,9 @@ if __name__ == "__main__":
     # 3. FEED TEST DATA.
     # In: bt_test_df
     # Out: bt_test_df with 'model_pred' column.
-    if args.model in {'saint', 'sakt'}:
+    if args.model in {'saint', 'sakt', 'dkt'}:
         datamodule = DataModule(model_config, overwrite_test_df=bt_test_df, \
-            last_one_only=last_one_only, overwrite_test_batch=5000)
+            last_one_only=last_one_only, overwrite_test_batch=1000)
         if 0:  # no multi-gpu
             bt_test_preds = predict_saint(saint_model=model, dataloader=datamodule.test_gen)
         else:  # use multi-gpu: dp only

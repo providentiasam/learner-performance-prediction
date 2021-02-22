@@ -89,7 +89,7 @@ class InteractionDataset(torch.utils.data.Dataset):
 def get_data(dataset, overwrite_test_df=None):
     data = {}
     modes = ["train", "val", "test"]
-    if dataset in []:
+    if dataset in ['ednet_medium', 'ednet']:
         for mode in modes:
             with open(f"data/{dataset}/{mode}_data.pkl", "rb") as file:
                 data[mode] = pkl.load(file)
@@ -251,17 +251,17 @@ def print_args(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_wandb", action="store_true", default=True)
-    parser.add_argument("--project", type=str, default='bt_lightning2')
-    parser.add_argument("--dataset", type=str, default="ednet_small")
+    parser.add_argument("--project", type=str, default='bt_lightning3')
+    parser.add_argument("--dataset", type=str, default="ednet_medium")
     parser.add_argument("--model", type=str, default='sakt')
     parser.add_argument("--name", type=str)
     parser.add_argument("--val_check_interval", type=float, default=1.0)
     parser.add_argument("--random_seed", type=int, default=0)
     parser.add_argument("--num_epochs", type=int, default=100)
-    parser.add_argument("--train_batch", type=int, default=256)
+    parser.add_argument("--train_batch", type=int, default=64)
     parser.add_argument("--test_batch", type=int, default=512)
-    parser.add_argument("--num_workers", type=int, default=16)
-    parser.add_argument("--gpu", type=str, default="0,1,2,3")
+    parser.add_argument("--num_workers", type=int, default=32)
+    parser.add_argument("--gpu", type=str, default="4,5,6,7")
     parser.add_argument("--device", type=str, default="gpu")
 
     parser.add_argument("--layer_count", type=int, default=2)
@@ -269,15 +269,15 @@ if __name__ == "__main__":
     parser.add_argument("--seq_len", type=int, default=200)
     parser.add_argument("--stride", type=int, default=100)
     
-    parser.add_argument("--optimizer", type=str, default='adam')
+    parser.add_argument("--optimizer", type=str, default='noam')
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--warmup_step", type=int, default=500)
+    parser.add_argument("--warmup_step", type=int, default=2000)
     
-    parser.add_argument("--dim_ff", type=int, default=200)
+    parser.add_argument("--dim_ff", type=int, default=100)
     parser.add_argument("--head_count", type=int, default=10)
 
     parser.add_argument("--dropout_rate", type=float, default=0.5)
-    parser.add_argument("--patience", type=int, default=30)
+    parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--accel", type=str, default='dp')
     args = parser.parse_args()
 
@@ -294,7 +294,7 @@ if __name__ == "__main__":
     if args.name is None:
         args.name = (
             f"{args.model}_{args.dataset}_l{args.layer_count}_d{args.dim_model}_seq{args.seq_len}"
-            + f"_{int(time.time())}"
+            + f"_{int(time.time())%10000}"
         )
 
     if args.dataset in ["ednet", "ednet_medium"]:

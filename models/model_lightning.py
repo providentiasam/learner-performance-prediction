@@ -248,6 +248,7 @@ class DKT(LightningKT):
         self.embed_pos = False
 
         embed_dim = config.dim_model if self.embed_sum else config.dim_model // 2
+        self.embed_dim = embed_dim
         self.embed["qid"] = nn.Embedding(config.num_item + 1, embed_dim, padding_idx=0)
         self.embed["skill"] = nn.Embedding(config.num_skill + 1, embed_dim, padding_idx=0)
         self.embed["pos"] = AbsoluteDiscretePositionalEncoding(
@@ -272,6 +273,7 @@ class DKT(LightningKT):
             query = query_item + query_skill
         else:
             query = torch.cat([query_item, query_skill], dim=-1)
+        query = query * math.sqrt(self.embed_dim)
         
         shifted_infos = {}
         for info in ['qid', 'skill', 'is_correct']:
@@ -290,6 +292,8 @@ class DKT(LightningKT):
 
         if self.embed_pos:
             input = input + input_pos
+
+        input = input * math.sqrt(self.embed_dim)
         input = torch.cat([input, input], dim=-1)
         input[..., : self.config.dim_model] *= (1 - (shifted_infos["is_correct"] != 1).int()).unsqueeze(-1)
         input[..., self.config.dim_model:] *= (1 - (shifted_infos["is_correct"] != 2).int()).unsqueeze(-1)
@@ -356,7 +360,7 @@ class SAINT(LightningKT):
         src += self.embed["skill"](batch_dict["skill"].squeeze(-1).to(device))
         enc_pos = self.embed["enc_pos"](timestamp).squeeze(0)  # (L_T, D)
         src += enc_pos
-
+        # TODO: sqrt scale embedding output?
         shifted_correct = torch.cat(
             [
                 torch.zeros([batch_dict["is_correct"].size(0), 1]).long().to(device),
@@ -401,6 +405,7 @@ class SAKT(LightningKT):
     def __init__(self, config):
         super().__init__(config)
         self.embed = nn.ModuleDict()
+        self.embed_dim = config.dim_model
         # maybe TODO: manage them with feature classes
         self.embed["qid"] = nn.Embedding(
             config.num_item + 1, config.dim_model, padding_idx=0
@@ -448,6 +453,7 @@ class SAKT(LightningKT):
         query = self.embed["qid"](batch_dict["qid"].to(device))
         query += self.embed["skill"](batch_dict["skill"].squeeze(-1).to(device))
         query += self.embed["enc_pos"](timestamp).squeeze(0)  # (L_T, D)
+        query = query * math.sqrt(self.embed_dim)
         
         shifted_infos = {}
         for info in ['qid', 'skill', 'is_correct']:
@@ -460,6 +466,7 @@ class SAKT(LightningKT):
         keyval = torch.cat([keyval, keyval], dim=-1)
         keyval[..., : self.config.dim_model] *= (1 - (shifted_infos["is_correct"] != 1).int()).unsqueeze(-1)
         keyval[..., self.config.dim_model:] *= (1 - (shifted_infos["is_correct"] != 2).int()).unsqueeze(-1)
+        keyval = keyval * math.sqrt(self.embed_dim)
         keyval = self.lin_in(keyval) # B L D
 
         query = query.transpose(0, 1)  # (L, B, D)
