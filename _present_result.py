@@ -27,7 +27,7 @@ if __name__ == '__main__':
             table_dict[(test_type, m_col)] = slim_summary.set_index(\
                 ['model', 'dataset'], drop=True)[m_col].dropna().unstack('dataset')
             
-    writer = pd.ExcelWriter('./temp.xlsx', engine='openpyxl') 
+    writer = pd.ExcelWriter('./temp2.xlsx', engine='openpyxl') 
     for (test_type, metric), table_df in table_dict.items():
         table_df.to_excel(writer, sheet_name='_'.join([test_type, metric]))
     writer.save()

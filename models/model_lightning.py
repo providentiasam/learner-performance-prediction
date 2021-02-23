@@ -90,6 +90,7 @@ class LightningKT(pl.LightningModule):
         self.epoch = 0
         self.preds = []
         self.labels = []
+        self.train_preds, self.train_labels, self.train_losses = [], [], []
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.lr,)
@@ -116,31 +117,43 @@ class LightningKT(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         train_res = self.compute_all_losses(train_batch)
         loss = train_res["loss"]  # (B, L)
+        pred = train_res["pred"]
+        label = (2 - train_batch["is_correct"]) if not FIX_SUBTWO else train_batch["is_correct"]
         mask = train_batch["pad_mask"]
         infer_mask = train_batch["infer_mask"]
+        nonzeros = torch.nonzero(infer_mask, as_tuple=True)
+        pred = pred[nonzeros].sigmoid()
+        label = label[nonzeros].long()
         if self.train_nonoverlap:
             loss = torch.sum(loss * mask * infer_mask) / torch.sum(mask * infer_mask)
         else:
             loss = torch.sum(loss * mask) / torch.sum(mask)
+        self.train_preds.append(pred.detach().cpu())
+        self.train_labels.append(label.detach().cpu())
+        self.train_losses.append(loss.detach().cpu())
         return loss
 
     def training_epoch_end(self, training_step_outputs):
         # summarize train epoch results
-        losses = []
-        for out in training_step_outputs:
-            losses.append(out["loss"])
-        epoch_loss = sum(losses) / len(losses)
+        epoch_loss = sum(self.train_losses) / len(self.train_losses)
+        preds = torch.cat(self.train_preds, dim=0).view(-1)
+        labels = torch.cat(self.train_labels, dim=0).view(-1)
+        epoch_auc = roc_auc_score(labels.cpu(), preds.cpu())
         print(f"Epoch Train loss: {epoch_loss}")
         self.epoch += 1
         if self.config.use_wandb:
             wandb.log(
                 {
                     "Train loss": epoch_loss,
+                    "Train auc": epoch_auc,
                     "Learning rate": self.optimizer.param_groups[0]['lr'],
                     "Epoch": self.epoch
                 },
                 step=self.global_step + 1,
             )
+        self.train_losses = []
+        self.train_preds = []
+        self.train_labels = []
 
 
     def validation_step(self, val_batch, batch_idx):
@@ -244,8 +257,10 @@ class DKT(LightningKT):
     def __init__(self, config):
         super().__init__(config)
         self.embed = nn.ModuleDict()
-        self.embed_sum = False  # Input to LSTM should be config.dim_model anyways
-        self.embed_pos = False
+        self.embed_sum = False  # config.embed_sum  # Input to LSTM should be config.dim_model anyways
+        self.embed_pos = False  # config.embed_pos
+        if self.embed_pos:
+            raise NotImplementedError
 
         embed_dim = config.dim_model if self.embed_sum else config.dim_model // 2
         self.embed_dim = embed_dim
@@ -273,7 +288,6 @@ class DKT(LightningKT):
             query = query_item + query_skill
         else:
             query = torch.cat([query_item, query_skill], dim=-1)
-        query = query * math.sqrt(self.embed_dim)
         
         shifted_infos = {}
         for info in ['qid', 'skill', 'is_correct']:
@@ -293,7 +307,6 @@ class DKT(LightningKT):
         if self.embed_pos:
             input = input + input_pos
 
-        input = input * math.sqrt(self.embed_dim)
         input = torch.cat([input, input], dim=-1)
         input[..., : self.config.dim_model] *= (1 - (shifted_infos["is_correct"] != 1).int()).unsqueeze(-1)
         input[..., self.config.dim_model:] *= (1 - (shifted_infos["is_correct"] != 2).int()).unsqueeze(-1)
@@ -319,7 +332,6 @@ class SAINT(LightningKT):
         super().__init__(config)
 
         self.embed = nn.ModuleDict()
-        # maybe TODO: manage them with feature classes
         self.embed["qid"] = nn.Embedding(
             config.num_item + 1, config.dim_model, padding_idx=0
         )
@@ -406,17 +418,24 @@ class SAKT(LightningKT):
         super().__init__(config)
         self.embed = nn.ModuleDict()
         self.embed_dim = config.dim_model
-        # maybe TODO: manage them with feature classes
+        try:
+            self.embed_pos = config.embed_pos
+            self.embed_sum = config.embed_sum
+        except Exception as e:
+            self.embed_pos = True
+            self.embed_sum = True
+
+        embed_dim = config.dim_model if self.embed_sum else config.dim_model // 2
+        self.embed_dim = embed_dim
         self.embed["qid"] = nn.Embedding(
-            config.num_item + 1, config.dim_model, padding_idx=0
+            config.num_item + 1, self.embed_dim, padding_idx=0
         )
         self.embed["skill"] = nn.Embedding(
-            config.num_skill + 1, config.dim_model, padding_idx=0
+            config.num_skill + 1, self.embed_dim, padding_idx=0
         )
         self.lin_in = nn.Linear(config.dim_model * 2, config.dim_model)
         self.embed["is_correct"] = nn.Embedding(3, config.dim_model, padding_idx=0)
 
-        # transformer
         self.encoder_layers = clone(NonSelfAttentionLayer(
             d_model=config.dim_model,
             nhead=config.head_count,
@@ -424,10 +443,11 @@ class SAKT(LightningKT):
             dropout=config.dropout_rate,
         ), config.layer_count)
         self.layer_norms = clone(nn.LayerNorm(config.dim_model), config.layer_count)
-        # positional encoding
-        self.embed["enc_pos"] = AbsoluteDiscretePositionalEncoding(
-            dim_emb=config.dim_model, max_len=config.seq_len, device=config.device
-        )
+
+        if self.embed_pos:
+            self.embed["enc_pos"] = AbsoluteDiscretePositionalEncoding(
+                dim_emb=config.dim_model, max_len=config.seq_len, device=config.device
+            )
         self.generator = nn.Linear(config.dim_model, 1)
 
         # xavier initialization
@@ -450,23 +470,34 @@ class SAKT(LightningKT):
         timestamp = torch.arange(1, self.config.seq_len + 1).to(device)
 
         obs_mask = batch_dict["pad_mask"].to(device)  # padding mask
-        query = self.embed["qid"](batch_dict["qid"].to(device))
-        query += self.embed["skill"](batch_dict["skill"].squeeze(-1).to(device))
-        query += self.embed["enc_pos"](timestamp).squeeze(0)  # (L_T, D)
-        query = query * math.sqrt(self.embed_dim)
+        query_q = self.embed["qid"](batch_dict["qid"].to(device))
+        query_s = self.embed["skill"](batch_dict["skill"].to(device))
+        
+        if self.embed_sum:
+            query = query_q + query_s
+        else:
+            query = torch.cat([query_q, query_s], dim=-1)
+        if self.embed_pos: 
+            query += self.embed["enc_pos"](timestamp).squeeze(0)  # (L_T, D)
         
         shifted_infos = {}
         for info in ['qid', 'skill', 'is_correct']:
             shifted_infos[info] = torch.cat(
                 [torch.zeros([batch_dict[info].size(0), 1]).long().to(device),
                 batch_dict[info][:, :-1].to(device)], -1)
-        keyval = self.embed["qid"](shifted_infos['qid'])
-        keyval += self.embed["skill"](shifted_infos['skill'].squeeze(-1).to(device))
-        keyval += self.embed["enc_pos"](timestamp - 1).squeeze(0)
+
+        embed_q = self.embed["qid"](shifted_infos['qid'].to(device))
+        embed_s = self.embed["skill"](shifted_infos['skill'].to(device))
+        if self.embed_sum:
+            keyval = embed_q + embed_s
+        else:
+            keyval = torch.cat([embed_q, embed_s], dim=-1)
+        if self.embed_pos:
+            keyval += self.embed["enc_pos"](timestamp - 1).squeeze(0)
+        
         keyval = torch.cat([keyval, keyval], dim=-1)
         keyval[..., : self.config.dim_model] *= (1 - (shifted_infos["is_correct"] != 1).int()).unsqueeze(-1)
         keyval[..., self.config.dim_model:] *= (1 - (shifted_infos["is_correct"] != 2).int()).unsqueeze(-1)
-        keyval = keyval * math.sqrt(self.embed_dim)
         keyval = self.lin_in(keyval) # B L D
 
         query = query.transpose(0, 1)  # (L, B, D)
