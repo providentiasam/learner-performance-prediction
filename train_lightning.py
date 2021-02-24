@@ -137,12 +137,8 @@ class DataModule(pl.LightningDataModule):
         super().__init__()
         self.data = get_data(config.dataset, overwrite_test_df=overwrite_test_df)
         if overwrite_test_df is None:
-            if config.model == "ckt":
-                seq_len = config.seq_len + config.mem_len + config.cmem_len
-            else:
-                seq_len = config.seq_len
-            train_data = InteractionDataset(self.data["train"], seq_len=seq_len, stride=config.stride)
-            val_data = InteractionDataset(self.data["val"], seq_len=seq_len, stride=10)
+            train_data = InteractionDataset(self.data["train"], seq_len=config.seq_len, stride=config.stride)
+            val_data = InteractionDataset(self.data["val"], seq_len=config.seq_len, stride=10)
             self.train_gen = torch.utils.data.DataLoader(
                 dataset=train_data,
                 shuffle=True,
@@ -271,8 +267,9 @@ if __name__ == "__main__":
     parser.add_argument("--layer_count", type=int, default=2)
     parser.add_argument("--dim_model", type=int, default=64)
     parser.add_argument("--seq_len", type=int, default=100)
-    parser.add_argument("--mem_len", type=int, default=200)
-    parser.add_argument("--cmem_len", type=int, default=200)
+    parser.add_argument("--seq_unit_len", type=int, default=100)
+    parser.add_argument("--mem_len", type=int, default=100)
+    parser.add_argument("--cmem_len", type=int, default=100)
     parser.add_argument("--cmem_ratio", type=int, default=2)
     parser.add_argument("--reconstruction_loss_weight", type=float, default=0.1)
     parser.add_argument("--stride", type=int, default=100)

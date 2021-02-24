@@ -339,12 +339,12 @@ class CompressiveTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         config.emb_dim = default(config.dim_model, config.dim_model)
-        mem_len = default(config.mem_len, config.seq_len)
+        mem_len = default(config.mem_len, config.seq_unit_len)
         cmem_len = default(config.cmem_len, mem_len // config.cmem_ratio)
         memory_layers = list(range(1, config.layer_count + 1))
 
         assert (
-            mem_len >= config.seq_len
+            mem_len >= config.seq_unit_len
         ), "length of memory should be at least the sequence length"
         assert cmem_len >= (mem_len // config.cmem_ratio), (
             f"length of compressed memory should be at least the memory length "
@@ -354,7 +354,7 @@ class CompressiveTransformer(nn.Module):
             [layer > 0 and layer <= config.layer_count for layer in memory_layers]
         ), "one of the indicated memory layers is invalid"
 
-        self.seq_len = config.seq_len
+        self.seq_len = config.seq_unit_len
 
         self.layer_count = config.layer_count
         self.memory_layers = list(memory_layers)
@@ -365,7 +365,7 @@ class CompressiveTransformer(nn.Module):
             else nn.Linear(config.emb_dim, config.dim_model)
         )
 
-        seq_and_mem_len = config.seq_len + mem_len + cmem_len
+        seq_and_mem_len = config.seq_unit_len + mem_len + cmem_len
         self.pos_emb = nn.Parameter(
             torch.zeros(
                 config.head_count,
