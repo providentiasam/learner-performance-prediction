@@ -137,8 +137,12 @@ class DataModule(pl.LightningDataModule):
         super().__init__()
         self.data = get_data(config.dataset, overwrite_test_df=overwrite_test_df)
         if overwrite_test_df is None:
-            train_data = InteractionDataset(self.data["train"], seq_len=config.seq_len, stride=config.stride)
-            val_data = InteractionDataset(self.data["val"], seq_len=config.seq_len, stride=10)
+            if config.model == "ckt":
+                seq_len = config.seq_len + config.mem_len + config.cmem_len
+            else:
+                seq_len = config.seq_len
+            train_data = InteractionDataset(self.data["train"], seq_len=seq_len, stride=config.stride)
+            val_data = InteractionDataset(self.data["val"], seq_len=seq_len, stride=10)
             self.train_gen = torch.utils.data.DataLoader(
                 dataset=train_data,
                 shuffle=True,
