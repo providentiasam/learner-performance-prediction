@@ -722,7 +722,7 @@ class CompressiveKT(LightningKT):
         output, aux_loss = self.pass_to_model(input_dict, pad_mask)
 
         logit = self.generator(output).squeeze(-1)  # (B, L)
-        label = BOOL_TOKEN_TO_FLOAT[feature_dict["is_correct"]]
+        label = BOOL_TOKEN_TO_FLOAT[feature_dict["is_correct"]].type_as(feature_dict["is_correct"])
 
         return {"label": label, "logit": logit, "aux_loss": aux_loss}
 
