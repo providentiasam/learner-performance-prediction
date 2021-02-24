@@ -19,7 +19,7 @@ import wandb
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-from models.model_lightning import SAKT, SAINT, DKT
+from models.model_lightning import SAKT, SAINT, DKT, CompressiveKT
 
 DEVICE = 'cuda'
 FIX_SUBTWO = False
@@ -250,7 +250,7 @@ def print_args(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--use_wandb", action="store_true", default=True)
+    parser.add_argument("--use_wandb", action="store_true", default=False)
     parser.add_argument("--project", type=str, default='bt_lightning3')
     parser.add_argument("--dataset", type=str, default="ednet")
     parser.add_argument("--model", type=str, default='sakt')
@@ -261,12 +261,16 @@ if __name__ == "__main__":
     parser.add_argument("--train_batch", type=int, default=2048)
     parser.add_argument("--test_batch", type=int, default=512)
     parser.add_argument("--num_workers", type=int, default=32)
-    parser.add_argument("--gpu", type=str, default="4,5,6,7")
+    parser.add_argument("--gpu", type=str, default=None)
     parser.add_argument("--device", type=str, default="gpu")
 
     parser.add_argument("--layer_count", type=int, default=2)
     parser.add_argument("--dim_model", type=int, default=64)
-    parser.add_argument("--seq_len", type=int, default=200)
+    parser.add_argument("--seq_len", type=int, default=100)
+    parser.add_argument("--mem_len", type=int, default=400)
+    parser.add_argument("--cmem_len", type=int, default=200)
+    parser.add_argument("--cmem_ratio", type=int, default=4)
+    parser.add_argument("--reconstruction_loss_weight", type=float, default=0.1)
     parser.add_argument("--stride", type=int, default=100)
     parser.add_argument("--embed_pos", type=int, default=1)
     parser.add_argument("--embed_sum", type=int, default=1)
@@ -318,6 +322,9 @@ if __name__ == "__main__":
         model = SAKT(args)
     elif args.model.lower().startswith('dkt'):
         model = DKT(args)
+    elif args.model.lower().startswith('ckt'):
+
+        model = CompressiveKT(args)
     else:
         raise NotImplementedError
 
@@ -350,9 +357,9 @@ if __name__ == "__main__":
         except RuntimeError as e:
             print(e)
             args.train_batch = args.train_batch // 2
-            wandb.log({"Train Batch": args.train_batch},
-                step=model.global_step + 1,
-            )
+            # wandb.log({"Train Batch": args.train_batch},
+            #     step=model.global_step + 1,
+            # )
             if args.train_batch < 20:
                 assert False
 
@@ -369,6 +376,9 @@ if __name__ == "__main__":
         model = SAKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
     elif args.model == 'dkt':
         model = DKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
+    elif args.model == 'ckt':
+        model = DKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
+
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
     model.eval()

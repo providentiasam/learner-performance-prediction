@@ -19,6 +19,14 @@ from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 FIX_SUBTWO = False
 
+
+import torch
+import torch.nn as nn
+import pytorch_lightning as pl
+from models.model_ctf import CompressiveTransformer
+from sklearn.metrics import roc_auc_score
+
+
 class AbsoluteDiscretePositionalEncoding(nn.Module):
     """
     Sinusoidal positional encoding from the original transformer.
@@ -522,4 +530,328 @@ class SAKT(LightningKT):
         return results
 
 
+NUM_ITEM = 20000
+NUM_PART = 7
+MIN_SEQ_LEN = 10
+MAX_ELAPSED_TIME = 300.0
+MAX_LAG_TIME = 86400.0
+MIN_SCORE = 250
+START_TOKEN_BOOL = 3
+START_TOKEN_QID = 0
+START_TOKEN_PART = 0
+START_TOKEN_CONT = 0.0
+BOOL_TOKEN_TO_FLOAT = torch.Tensor([0.0, 1.0, 0.0, 0.0])
+PADDING_TOKEN = 0
+
+# class CompressiveKTConfig:
+#     """
+#     Configuration class used for constructing a compressive transformer
+#     """
+#
+#     def __init__(
+#         self,
+#         layer_count: int = 4,
+#         head_count: int = 8,
+#         dim_embed: int = 128,
+#         dim_model: int = 512,
+#         dim_feedforward: int = 1024,
+#         dim_score_gen: int = 512,
+#         seq_len: int = 128,
+#         memory_layers=None,
+#         mem_len: int = 256,
+#         cmem_len: int = None,
+#         cmem_ratio: int = 4,
+#         gru_gated_residual: bool = True,
+#         mogrify_gru: bool = False,
+#         attn_dropout: float = 0.1,
+#         ff_glu: bool = False,
+#         ff_dropout: float = 0.1,
+#         attn_layer_dropout: float = 0.1,
+#         reconstruction_attn_dropout: float = 0.0,
+#         reconstruction_loss_weight: float = 1.0,
+#         one_kv_head: bool = False,
+#         val_check_steps: float = 0.1,
+#         lr: float = 1e-3,
+#         use_wandb: bool = False,
+#     ):
+#         self.seq_len = seq_len
+#         self.mem_len = mem_len
+#         self.cmem_len = cmem_len
+#         self.cmem_ratio = cmem_ratio
+#         self.memory_layers = memory_layers
+#         self.layer_count = layer_count
+#         self.head_count = head_count
+#         self.dim_embed = dim_embed
+#         self.dim_model = dim_model
+#         self.dim_feedforward = dim_feedforward
+#         self.dim_score_gen = dim_score_gen
+#         self.gru_gated_residual = gru_gated_residual
+#         self.mogrify_gru = mogrify_gru
+#         self.attn_dropout = attn_dropout
+#         self.ff_glu = ff_glu
+#         self.ff_dropout = ff_dropout
+#         self.attn_layer_dropout = attn_layer_dropout
+#         self.reconstruction_attn_dropout = reconstruction_attn_dropout
+#         self.reconstruction_loss_weight = reconstruction_loss_weight
+#         self.one_kv_head = one_kv_head
+#         self.val_check_steps = val_check_steps
+#         self.lr = lr
+#         self.use_wandb = use_wandb
+#
+
+class InteractionEmbedding(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.embedding = nn.ModuleDict(
+            {
+                "qid": nn.Embedding(config.num_item + 2, config.emb_dim, padding_idx=0),
+                "skill": nn.Embedding(config.num_skill + 2, config.emb_dim, padding_idx=0),
+                "is_correct": nn.Embedding(4, config.emb_dim, padding_idx=0),
+                # 'is_on_time': nn.Embedding(4, config.emb_dim, padding_idx=0),
+                # "elapsed_time": nn.Linear(1, config.emb_dim, bias=False),
+            }
+        )
+
+    def forward(self, token_dict):
+        output = 0.0
+        for key, embed in self.embedding.items():
+            output += embed(token_dict[key])
+        return output
+
+
+class CompressiveKT(LightningKT):
+    """
+    pytorch lightning module for compressive KT model
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.model = CompressiveTransformer(config)
+        self.embed = InteractionEmbedding(config)
+        self.seq_len = config.seq_len
+        self.dim_model = config.dim_model
+        self.dim_embed = config.dim_model
+        self.generator = nn.Linear(self.dim_model, 1)
+        self.lr = config.lr
+        self.use_wandb = config.use_wandb
+        self.best_val_auc = 0
+
+    def compute_all_losses(self, batch):
+        infer_result = self.inference(batch)
+        label = infer_result["label"]  # (B, L)
+        logit = infer_result["logit"]  # (B, L)
+        aux_loss = infer_result["aux_loss"]  # (0)
+
+        bce_loss = nn.BCEWithLogitsLoss(reduction="none")(logit, label)
+        return {"loss": bce_loss, "aux_loss": aux_loss, "pred": logit.detach()}
+
+    def generate_square_subsequent_mask(self, sz: int) -> torch.Tensor:
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def compute_roc_auc(self, label, pred):
+        return roc_auc_score(label.cpu(), pred.cpu())
+
+    def shift_feature(self, feature, start_token):
+        """
+        input
+            feature: (B, L)
+            batch_size = B
+        output
+            shifted_feature: (B, L)
+        """
+        shifted_feature = torch.cat(
+            [
+                torch.tensor(start_token).repeat([feature.size(0), 1]).type_as(feature),
+                feature[:, :-1],
+            ],
+            dim=-1,
+        )  # (B, L)
+        return shifted_feature
+
+    def pass_to_model(self, input_dict, mask):
+        """
+        input
+            input_dict: qid, part, is_correct, elapsed_time: (B, L)
+            mask: (B, L)
+        output
+            output: (B, L, D)
+            aux_loss: dim 0
+        """
+        x = self.embed(input_dict)  # (B, L, D)
+
+        x = torch.unbind(
+            x.view(x.size(0), -1, self.seq_len, x.size(-1)).transpose(
+                0, 1
+            )  # (n, B, l, D)
+        )  # list of n tensors of size (B, l, D)
+        mask = torch.unbind(
+            mask.view(mask.size(0), -1, self.seq_len).transpose(0, 1)
+        )  # list of n tensors of size (B, l)
+
+        mem = None
+        aux_losses = []
+        outputs = []
+        for _x, _mask in zip(x, mask):
+            output, mem, aux_loss = self.model(_x, memories=mem, mask=_mask)
+            outputs.append(output)  # output: (B, l, D)
+            aux_losses.append(aux_loss)
+        output = torch.cat(outputs, dim=1)  # (B, L, D)
+        aux_loss = sum(aux_losses) / len(aux_losses)
+
+        return output, aux_loss
+
+    def inference(self, feature_dict):
+        pad_mask = feature_dict["pad_mask"]  # (B, L)
+        qid = feature_dict["qid"]  # (B, L)
+        part = feature_dict["skill"]  # (B, L)
+        is_correct = self.shift_feature(
+            feature_dict["is_correct"], START_TOKEN_BOOL
+        )  # (B, L)
+        # elapsed_time = self.shift_feature(
+        #     feature_dict["elapsed_time"], START_TOKEN_CONT
+        # )  # (B, L)
+
+        input_dict = {
+            "qid": qid,
+            "skill": part,
+            "is_correct": is_correct,
+            # "elapsed_time": elapsed_time.unsqueeze(-1),
+        }
+        output, aux_loss = self.pass_to_model(input_dict, pad_mask)
+
+        logit = self.generator(output).squeeze(-1)  # (B, L)
+        label = BOOL_TOKEN_TO_FLOAT[feature_dict["is_correct"]]
+
+        return {"label": label, "logit": logit, "aux_loss": aux_loss}
+
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+    #     return {"optimizer": optimizer}
+
+    def training_step(self, train_batch, batch_idx):
+        res = self.compute_all_losses(train_batch)
+        loss = res["loss"] + res["aux_loss"]
+        pred = res["pred"]
+        label = (2 - train_batch["is_correct"]) if not FIX_SUBTWO else train_batch["is_correct"]
+
+        mask = train_batch["pad_mask"]
+        infer_mask = train_batch["infer_mask"]
+
+        nonzeros = torch.nonzero(infer_mask, as_tuple=True)
+        pred = pred[nonzeros].sigmoid()
+        label = label[nonzeros].long()
+        if self.train_nonoverlap:
+            loss = torch.sum(loss * mask * infer_mask) / torch.sum(mask * infer_mask)
+        else:
+            loss = torch.sum(loss * mask) / torch.sum(mask)
+        self.train_preds.append(pred.detach().cpu())
+        self.train_labels.append(label.detach().cpu())
+        self.train_losses.append(loss.detach().cpu())
+
+        return loss
+
+    # def trainig_step_end(self, sub_batch_outputs):
+    #     loss = torch.mean(sub_batch_outputs["loss"])
+    #     if self.global_step % 1000 == 0:
+    #         print(f"Epoch Train loss: {loss}")
+    #         self.logger.experiment.log(
+    #             {"Train loss": loss.item()}, step=self.global_step + 1
+    #         )
+    #     return {"loss": loss}
+
+    # def training_epoch_end(self, training_step_outputs):
+    #     # summarize train epoch results
+    #     losses = []
+    #     for out in training_step_outputs:
+    #         losses.append(out["loss"])
+    #     epoch_loss = torch.mean(torch.stack(losses))
+    #
+    #     self.log("train_loss", epoch_loss)
+    #
+    # def eval_step(self, batch):
+    #     # val_step or test_step
+    #     infer_result = self.inference(batch["feature"])
+    #     label = infer_result["label"]  # (B, L)
+    #     logit = infer_result["logit"]  # (B, L)
+    #     infer_mask = batch["feature"]["infer_mask"]
+    #
+    #     bce_loss = self.compute_loss(logit, label, infer_mask)
+    #     loss = bce_loss
+    #
+    #     nonzeros = torch.nonzero(infer_mask, as_tuple=True)
+    #     pred = logit[nonzeros].sigmoid()
+    #     label = label[nonzeros].long()
+    #     return {"loss": loss, "pred": pred, "label": label}
+    #
+    # def eval_step_end(self, sub_batch_outputs):
+    #     # val_step_end or test_step_end
+    #     loss = torch.mean(sub_batch_outputs["loss"])
+    #     pred, label = sub_batch_outputs["pred"], sub_batch_outputs["label"]
+    #     return {"loss": loss, "pred": pred, "label": label}
+    #
+    # def eval_epoch_end(self, step_outputs):
+    #     # val_epoch_end or test_epoch_end
+    #     # summarize epoch results
+    #     losses = []
+    #     preds = []
+    #     labels = []
+    #     for out in step_outputs:
+    #         losses.append(out["loss"])
+    #         preds.append(out["pred"])
+    #         labels.append(out["label"])
+    #
+    #     pred = torch.cat(preds, dim=0).view(-1)
+    #     label = torch.cat(labels, dim=0).view(-1)
+    #     loss = torch.mean(torch.stack(losses))
+    #     auc = self.compute_roc_auc(label, pred)
+    #     return {"loss": loss, "auc": auc}
+
+    # def validation_step(self, batch, batch_idx):
+    #     res = self.eval_step(batch)
+    #     self.log(
+    #         "validation_loss", res["loss"], on_step=True, on_epoch=True, sync_dist=True
+    #     )
+    #     return res
+    #
+    # def validation_step_end(self, sub_batch_outputs):
+    #     return self.eval_step_end(sub_batch_outputs)
+
+    # def validation_epoch_end(self, step_outputs):
+    #     res = self.eval_epoch_end(step_outputs)
+    #     loss, auc = res["loss"], res["auc"]
+    #     print(
+    #         f"Val loss: {float(loss):.4f}, auc: {auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
+    #     )
+    #     if auc > self.best_val_auc:
+    #         # update max valid auc & epoch and save weight
+    #         self.best_val_auc = auc
+    #
+    #     if self.use_wandb:
+    #         self.logger.experiment.log(
+    #             {"Val loss": loss, "Val auc": auc, "Best Val auc": self.best_val_auc,},
+    #             step=self.global_step + 1,
+    #         )
+    #     self.log("val_auc", auc)
+    #
+    # def test_step(self, batch, batch_idx):
+    #     res = self.eval_step(batch)
+    #     self.log("test_loss", res["loss"], on_step=True, on_epoch=True, sync_dist=True)
+    #     return res
+    #
+    # def test_step_end(self, sub_batch_outputs):
+    #     return self.eval_step_end(sub_batch_outputs)
+    #
+    # def test_epoch_end(self, step_outputs):
+    #     res = self.eval_epoch_end(step_outputs)
+    #     loss, auc = res["loss"], res["auc"]
+    #
+    #     print(
+    #         f"Test loss: {float(loss):.4f}, auc: {auc:.4f}, previous best auc: {self.best_val_auc:.4f}"
+    #     )
+    #     if self.use_wandb:
+    #         self.logger.experiment.log(
+    #             {"Test loss": loss, "Test auc": auc,}
+    #         )
 
