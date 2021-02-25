@@ -597,7 +597,7 @@ PADDING_TOKEN = 0
 #         self.val_check_steps = val_check_steps
 #         self.lr = lr
 #         self.use_wandb = use_wandb
-#
+
 
 class InteractionEmbedding(nn.Module):
     def __init__(self, config):
@@ -629,6 +629,7 @@ class CompressiveKT(LightningKT):
         self.model = CompressiveTransformer(config)
         self.embed = InteractionEmbedding(config)
         self.seq_len = config.seq_len
+        self.seq_unit_len = config.seq_unit_len
         self.dim_model = config.dim_model
         self.dim_embed = config.dim_model
         self.generator = nn.Linear(self.dim_model, 1)
@@ -682,12 +683,12 @@ class CompressiveKT(LightningKT):
         x = self.embed(input_dict)  # (B, L, D)
 
         x = torch.unbind(
-            x.view(x.size(0), -1, self.seq_len, x.size(-1)).transpose(
+            x.view(x.size(0), -1, self.seq_unit_len, x.size(-1)).transpose(
                 0, 1
             )  # (n, B, l, D)
         )  # list of n tensors of size (B, l, D)
         mask = torch.unbind(
-            mask.view(mask.size(0), -1, self.seq_len).transpose(0, 1)
+            mask.view(mask.size(0), -1, self.seq_unit_len).transpose(0, 1)
         )  # list of n tensors of size (B, l)
 
         mem = None

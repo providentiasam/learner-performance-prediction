@@ -24,6 +24,7 @@ from models.model_lightning import SAKT, SAINT, DKT, CompressiveKT
 DEVICE = 'cuda'
 FIX_SUBTWO = False
 
+
 class InteractionDataset(torch.utils.data.Dataset):
     def __init__(self, uid2sequence, seq_len=100, stride=50, \
         last_max_seq_only=False, last_interaction_only=False):
