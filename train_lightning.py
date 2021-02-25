@@ -379,7 +379,7 @@ if __name__ == "__main__":
     elif args.model == 'dkt':
         model = DKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
     elif args.model == 'ckt':
-        model = DKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
+        model = CompressiveKT.load_from_checkpoint(checkpoint_path, config=args).cuda()
 
     with open(checkpoint_path.replace('.ckpt', '_config.pkl'), 'wb+') as file:
         pickle.dump(args.__dict__, file)
